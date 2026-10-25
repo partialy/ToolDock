@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { Modal } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { SelectField } from '@/components/ui/select-field'
+import { SwitchField } from '@/components/ui/switch-field'
 import { ICONS, Icon } from '@/components/ui/icon'
 import type {Category,Tool} from '@/types/models'
 import type {Workspace} from '@/store/useWorkspace'
@@ -30,11 +32,11 @@ export function EditorDialog({edit,onClose,ws}:{edit:Edit|null;onClose:()=>void;
     </div>
    </div>
    {edit?.kind==='tool'&&<>
-    <label className="block space-y-1.5"><span className="text-xs muted">所属分类</span><select value={categoryId} onChange={e=>setCategoryId(e.target.value)} className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--panel-alt)] px-2">{ws.categories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+    <div className="space-y-1.5"><span className="block text-xs muted">所属分类</span><SelectField ariaLabel="所属分类" value={categoryId} onValueChange={setCategoryId} options={ws.categories.map(c=>({value:c.id,label:c.name,icon:<Icon name={c.icon} size={15}/>}))} className="w-full"/></div>
     <div className="text-xs muted">工具类型：{edit.item?.type==='internal'?'内部预置页面':'网页链接 (HTTPS/HTTP)'}</div>
     {edit.item?.type!=='internal'&&<label className="block space-y-1.5"><span className="text-xs muted">链接地址</span><Input value={target} onChange={e=>setTarget(e.target.value)} placeholder="https://example.com"/></label>}
    </>}
-   <label className="flex cursor-pointer items-center gap-2 text-xs"><input type="checkbox" checked={visible} onChange={e=>setVisible(e.target.checked)}/> 在侧栏显示</label>
+   <div className="flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--panel-alt)] px-3 py-2.5 text-xs"><span>在侧栏显示</span><SwitchField ariaLabel="在侧栏显示" checked={visible} onCheckedChange={setVisible}/></div>
    {error&&<div role="alert" className="text-sm text-red-400">{error}</div>}
   </div>
  </Modal>

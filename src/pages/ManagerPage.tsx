@@ -5,6 +5,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { Eye, EyeOff, GripVertical, Pencil, Trash2, FolderPlus, Plus, RotateCcw } from 'lucide-react'
 import { Icon } from '@/components/ui/icon'
 import { Button } from '@/components/ui/button'
+import { SelectField } from '@/components/ui/select-field'
 import type {Workspace} from '@/store/useWorkspace'
 import type {Category,Tool} from '@/types/models'
 type Edit=({kind:'category';item?:Category}|{kind:'tool';item?:Tool})
@@ -51,7 +52,7 @@ export function ManagerPage({ws,onEdit}:{ws:Workspace;onEdit:(edit:Edit)=>void})
   <div className="inline-flex rounded-xl bg-[var(--panel-alt)] p-1">
    {([['categories','分类管理'],['tools','工具管理']] as const).map(([key,label])=><button key={key} className={'rounded-lg px-4 py-2 text-sm '+(tab===key?'bg-[var(--panel)] shadow':'muted')} onClick={()=>setTab(key)}>{label}</button>)}
   </div>
-  {tab==='tools'&&<select className="ml-3 h-9 rounded-lg border border-[var(--border)] bg-[var(--panel)] px-3" value={categoryId} onChange={e=>setCategoryId(e.target.value)}>{ws.categories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>}
+  {tab==='tools'&&<div className="ml-3 inline-block align-middle"><SelectField ariaLabel="筛选所属分类" value={categoryId} onValueChange={setCategoryId} options={ws.categories.map(c=>({value:c.id,label:c.name,icon:<Icon name={c.icon} size={15}/>}))} className="min-w-[164px]"/></div>}
   {tab==='categories'?<DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={e=>void sortCats(e)}>
    <SortableContext items={ordered.map(c=>c.id)} strategy={verticalListSortingStrategy}><div className="space-y-2">{ordered.map(c=><SortableRow key={c.id} id={c.id}>{handle=><>
     <button {...handle} aria-label="拖拽分类" className="touch-none cursor-grab p-1 muted"><GripVertical size={17}/></button>

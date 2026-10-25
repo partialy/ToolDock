@@ -32,6 +32,10 @@ npm run dist
 - 首期预置密钥生成器（SSH Ed25519/RSA、PEM RSA、AES、安全随机字符串），默认不持久化密钥。
 - 数据目录迁移、旧副本删除、备份恢复、诊断日志；主题、动效和默认分类标记可配置。
 
+## UI 组件约定
+
+下拉框统一使用 `src/components/ui/select-field.tsx`（卡片式选项、Radix Select 键盘操作、Motion 微动画），布尔设置统一使用 `src/components/ui/switch-field.tsx`（弹簧开关）。不要在新页面中直接添加原生 `<select>`。组件会响应标准/减少/关闭动效设置及系统减少动画偏好。
+
 ## 安全约束
 
 外部网页不可获得 Node.js、Electron IPC 或文件系统权限；不允许通过 `eval` 执行 AI 生成的 Node.js 代码。将来导入的本地 HTML/AI 生成工具必须与主程序隔离并采用能力授权。私钥与 AES 密钥不写入 SQLite 和诊断日志。

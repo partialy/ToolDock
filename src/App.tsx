@@ -1,6 +1,7 @@
 import { useCallback,useEffect,useRef,useState } from 'react'
 import { AnimatePresence, MotionConfig, motion, useReducedMotion } from 'motion/react'
 import { AlertTriangle, RefreshCw, Globe, Blocks } from 'lucide-react'
+import { MotionPreferenceContext } from '@/components/ui/motion-preference'
 import { HeaderBar } from '@/components/layout/HeaderBar'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { EditorDialog } from '@/components/forms/EditorDialog'
@@ -66,7 +67,7 @@ export default function App(){
   if(tool?.type==='internal'&&tool.target==='key-generator')return <KeyGeneratorPage key={tool.id}/>
   return <div className="p-10 muted">页面不存在或工具已删除。请从侧栏选择工具。</div>
  }
- return <MotionConfig reducedMotion={motionOff?'always':'never'}>
+ return <MotionPreferenceContext.Provider value={ws.settings.motion}><MotionConfig reducedMotion={motionOff?'always':'never'}>
   <div className={'flex h-screen w-screen flex-col overflow-hidden bg-[var(--background)] text-[var(--foreground)] '+(ws.settings.theme==='dark'?'dark':'')}>
    <HeaderBar back={()=>setPosition(p=>Math.max(0,p-1))} forward={()=>setPosition(p=>Math.min(history.length-1,p+1))} canBack={position>0} canForward={position<history.length-1} title={title} onAddCategory={()=>openEditor({kind:'category'})} onAddTool={()=>openEditor({kind:'tool'})} settings={ws.settings} onTheme={()=>void ws.setPreference('theme',ws.settings.theme==='dark'?'light':'dark')}/>
    <div className="relative flex min-h-0 flex-1">
@@ -81,5 +82,5 @@ export default function App(){
    {ws.error&&<div role="alert" className="absolute bottom-4 right-4 z-50 max-w-lg rounded-xl border border-red-500/40 bg-[var(--panel)] p-4 text-sm text-red-400 shadow-xl"><button aria-label="关闭错误" onClick={()=>ws.setError('')} className="float-right ml-4">×</button>{ws.error}</div>}
    <EditorDialog edit={editor} onClose={closeEditor} ws={ws}/>
   </div>
- </MotionConfig>
+ </MotionConfig></MotionPreferenceContext.Provider>
 }

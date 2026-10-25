@@ -1,5 +1,7 @@
 import { useEffect,useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { SelectField } from '@/components/ui/select-field'
+import { SwitchField } from '@/components/ui/switch-field'
 import { Archive, Folder, HardDrive, ShieldCheck, Trash2, AlertTriangle, RotateCw } from 'lucide-react'
 import type {DataInfo} from '@/types/models'
 import type {Workspace} from '@/store/useWorkspace'
@@ -20,12 +22,12 @@ export function SettingsPage({ws}:{ws:Workspace}){
  return <div className="mx-auto max-w-4xl space-y-7 p-7">
   <div><h1 className="text-2xl font-semibold">设置</h1><p className="mt-2 text-sm muted">调整工作区外观、网页安全策略和本地数据存储。</p></div>
   <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5"><h2 className="mb-2 text-sm font-semibold">外观与体验</h2>
-   <SettingRow title="外观主题" description="默认为暗色，也可以切换到浅色。"><select value={ws.settings.theme} onChange={e=>void ws.setPreference('theme',e.target.value as 'dark'|'light')} className="h-9 rounded-lg border border-[var(--border)] bg-[var(--panel-alt)] px-3"><option value="dark">暗色</option><option value="light">浅色</option></select></SettingRow>
-   <SettingRow title="动效偏好" description="支持柔和微动画；减少动画模式适合需要减少位移动画的用户。"><select value={ws.settings.motion} onChange={e=>void ws.setPreference('motion',e.target.value as 'normal'|'reduced'|'off')} className="h-9 rounded-lg border border-[var(--border)] bg-[var(--panel-alt)] px-3"><option value="normal">标准</option><option value="reduced">减少</option><option value="off">关闭</option></select></SettingRow>
-   <SettingRow title="显示默认分类标记" description="在默认分类名称末尾显示“默认”Tag，分类名称仍然可以自定义。"><input type="checkbox" className="accent-indigo-500" checked={ws.settings.showDefaultTag} onChange={e=>void ws.setPreference('showDefaultTag',e.target.checked)}/></SettingRow>
+   <SettingRow title="外观主题" description="默认为暗色，也可以切换到浅色。"><SelectField value={ws.settings.theme} ariaLabel="外观主题" onValueChange={v=>void ws.setPreference('theme',v as 'dark'|'light')} options={[{value:'dark',label:'暗色主题',description:'适合长时间专注使用'},{value:'light',label:'浅色主题',description:'适合明亮环境'}]} className="min-w-[148px]"/></SettingRow>
+   <SettingRow title="动效偏好" description="支持柔和微动画；减少动画模式适合需要减少位移动画的用户。"><SelectField value={ws.settings.motion} ariaLabel="动效偏好" onValueChange={v=>void ws.setPreference('motion',v as 'normal'|'reduced'|'off')} options={[{value:'normal',label:'标准动效',description:'自然弹簧与微交互'},{value:'reduced',label:'减少动效',description:'尽量减少位移与缩放'},{value:'off',label:'关闭动效',description:'无过渡，立即切换'}]} className="min-w-[148px]"/></SettingRow>
+   <SettingRow title="显示默认分类标记" description="在默认分类名称末尾显示“默认”Tag，分类名称仍然可以自定义。"><SwitchField checked={ws.settings.showDefaultTag} ariaLabel="显示默认分类标记" onCheckedChange={v=>void ws.setPreference('showDefaultTag',v)}/></SettingRow>
   </section>
   <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5"><h2 className="mb-2 flex items-center gap-2 text-sm font-semibold"><ShieldCheck size={17}/> 网页安全</h2>
-   <SettingRow title="允许加载 HTTP 网页" description="默认关闭。开启后允许非加密 HTTP，但不会向外部网页开放 Electron/Node.js 权限；localhost 始终允许。"><input type="checkbox" className="accent-indigo-500" checked={ws.settings.allowHttp} onChange={e=>void ws.setPreference('allowHttp',e.target.checked)}/></SettingRow>
+   <SettingRow title="允许加载 HTTP 网页" description="默认关闭。开启后允许非加密 HTTP，但不会向外部网页开放 Electron/Node.js 权限；localhost 始终允许。"><SwitchField checked={ws.settings.allowHttp} ariaLabel="允许加载 HTTP 网页" onCheckedChange={v=>void ws.setPreference('allowHttp',v)}/></SettingRow>
   </section>
   <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5"><h2 className="mb-2 flex items-center gap-2 text-sm font-semibold"><HardDrive size={17}/> 数据存储</h2>
    <SettingRow title="当前数据目录" description={info?.root||'读取中...'}><Button size="sm" onClick={()=>void window.toolDock.data.openFolder()}><Folder size={15}/> 打开目录</Button></SettingRow>
