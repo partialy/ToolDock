@@ -1,0 +1,45 @@
+import { useEffect,useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { Archive, Folder, HardDrive, ShieldCheck, Trash2, AlertTriangle, RotateCw } from 'lucide-react'
+import type {DataInfo} from '@/types/models'
+import type {Workspace} from '@/store/useWorkspace'
+function SettingRow({title,description,children}:{title:string;description:string;children:React.ReactNode}){return <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] py-4 last:border-b-0"><div className="max-w-lg"><div className="font-medium">{title}</div><p className="mt-1 text-xs leading-5 muted">{description}</p></div><div className="shrink-0">{children}</div></div>}
+export function SettingsPage({ws}:{ws:Workspace}){
+ const [info,setInfo]=useState<DataInfo|null>(null),[target,setTarget]=useState(''),[message,setMessage]=useState(''),[error,setError]=useState(''),[restart,setRestart]=useState(false),[busy,setBusy]=useState(false)
+ const load=()=>window.toolDock.data.getInfo().then(setInfo).catch(e=>setError(String(e)))
+ useEffect(()=>{void load()},[])
+ const action=async(fn:()=>Promise<unknown>,success:string)=>{setBusy(true);setError('');setMessage('');try{const result=await fn();setMessage(success);await load();return result}catch(e){setError(e instanceof Error?e.message:String(e));return null}finally{setBusy(false)}}
+ const select=async()=>{const p=await window.toolDock.data.choose();if(p)setTarget(p)}
+ const migrate=async()=>{
+  if(!target||!window.confirm('将当前数据复制到新目录并在重新启动后切换。原目录保留，是否继续？'))return
+  const result=await action(()=>window.toolDock.data.migrate(target),'数据复制完成，请重新启动应用以启用新目录。')
+  if(result)setRestart(true)
+ }
+ const restore=async()=>{const result=await action(()=>window.toolDock.data.restore(),'备份数据已恢复，请重新启动应用。');if(result)setRestart(true)}
+ const clearOld=async(id:string,path:string)=>{if(window.confirm('确认删除旧数据副本？\n'+path+'\n此操作不可撤销！'))await action(()=>window.toolDock.data.deleteOld(id),'旧数据已删除')}
+ return <div className="mx-auto max-w-4xl space-y-7 p-7">
+  <div><h1 className="text-2xl font-semibold">设置</h1><p className="mt-2 text-sm muted">调整工作区外观、网页安全策略和本地数据存储。</p></div>
+  <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5"><h2 className="mb-2 text-sm font-semibold">外观与体验</h2>
+   <SettingRow title="外观主题" description="默认为暗色，也可以切换到浅色。"><select value={ws.settings.theme} onChange={e=>void ws.setPreference('theme',e.target.value as 'dark'|'light')} className="h-9 rounded-lg border border-[var(--border)] bg-[var(--panel-alt)] px-3"><option value="dark">暗色</option><option value="light">浅色</option></select></SettingRow>
+   <SettingRow title="动效偏好" description="支持柔和微动画；减少动画模式适合需要减少位移动画的用户。"><select value={ws.settings.motion} onChange={e=>void ws.setPreference('motion',e.target.value as 'normal'|'reduced'|'off')} className="h-9 rounded-lg border border-[var(--border)] bg-[var(--panel-alt)] px-3"><option value="normal">标准</option><option value="reduced">减少</option><option value="off">关闭</option></select></SettingRow>
+   <SettingRow title="显示默认分类标记" description="在默认分类名称末尾显示“默认”Tag，分类名称仍然可以自定义。"><input type="checkbox" className="accent-indigo-500" checked={ws.settings.showDefaultTag} onChange={e=>void ws.setPreference('showDefaultTag',e.target.checked)}/></SettingRow>
+  </section>
+  <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5"><h2 className="mb-2 flex items-center gap-2 text-sm font-semibold"><ShieldCheck size={17}/> 网页安全</h2>
+   <SettingRow title="允许加载 HTTP 网页" description="默认关闭。开启后允许非加密 HTTP，但不会向外部网页开放 Electron/Node.js 权限；localhost 始终允许。"><input type="checkbox" className="accent-indigo-500" checked={ws.settings.allowHttp} onChange={e=>void ws.setPreference('allowHttp',e.target.checked)}/></SettingRow>
+  </section>
+  <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5"><h2 className="mb-2 flex items-center gap-2 text-sm font-semibold"><HardDrive size={17}/> 数据存储</h2>
+   <SettingRow title="当前数据目录" description={info?.root||'读取中...'}><Button size="sm" onClick={()=>void window.toolDock.data.openFolder()}><Folder size={15}/> 打开目录</Button></SettingRow>
+   <div className="mt-4 space-y-3"><label className="block text-xs muted">新数据目录（必须为空）</label>
+    <div className="flex flex-wrap gap-2"><input readOnly value={target} placeholder="选择迁移目标目录" className="h-9 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--panel-alt)] px-3"/><Button size="sm" onClick={()=>void select()}>浏览</Button><Button size="sm" variant="primary" disabled={!target||busy} onClick={()=>void migrate()}>迁移数据</Button></div>
+   </div>
+   {!!info?.oldCopies.length&&<div className="mt-5"><h3 className="mb-2 text-xs font-semibold muted">旧数据副本</h3>{info.oldCopies.filter(x=>!x.removed).map(x=><div key={x.id} className="flex items-center justify-between gap-3 border-t border-[var(--border)] py-2"><span className="truncate text-xs" title={x.path}>{x.path}</span><Button size="sm" variant="danger" disabled={busy} onClick={()=>void clearOld(x.id,x.path)}><Trash2 size={14}/> 删除旧数据</Button></div>)}</div>}
+  </section>
+  <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5"><h2 className="mb-2 flex items-center gap-2 text-sm font-semibold"><Archive size={17}/> 备份与恢复</h2>
+   <p className="mb-4 text-xs muted">手动备份分类、工具、设置及工具文件。备份可能包含敏感信息，请妥善保管。</p>
+   <div className="flex gap-2"><Button size="sm" disabled={busy} onClick={()=>void action(()=>window.toolDock.data.backup(),'备份已保存')}><Archive size={14}/> 导出备份</Button><Button size="sm" disabled={busy} onClick={()=>void restore()}><RotateCw size={14}/> 从备份恢复</Button></div>
+  </section>
+  <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5"><h2 className="mb-2 text-sm font-semibold">诊断日志</h2><p className="mb-4 text-xs muted">仅在本机记录操作失败类型，不记录密码、私钥或网页内容；最多保存7天。</p><div className="flex gap-2"><Button size="sm" onClick={()=>void action(()=>window.toolDock.data.exportLogs(),'诊断日志已导出')}>导出诊断日志</Button><Button size="sm" variant="danger" onClick={()=>{if(window.confirm('清空所有本地诊断日志？'))void action(()=>window.toolDock.data.clearLogs(),'日志已清空')}}>清空日志</Button></div></section>
+  {restart&&<div className="flex items-center justify-between rounded-xl border border-amber-500/40 bg-amber-500/10 p-4"><span className="text-sm text-amber-300">数据已准备好，重启后切换。</span><Button variant="primary" onClick={()=>void window.toolDock.data.restart()}>立即重启</Button></div>}
+  {message&&<p role="status" className="text-sm text-emerald-400">{message}</p>}{error&&<p role="alert" className="text-sm text-red-400">{error}</p>}
+ </div>
+}

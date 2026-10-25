@@ -1,0 +1,33 @@
+@import "tailwindcss";
+@custom-variant dark (&:is(.dark *));
+:root {
+  font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
+  color-scheme: light;
+  --background: #f5f6f8; --panel: #ffffff; --panel-alt: #eef0f4;
+  --foreground: #171a24; --muted: #717785; --border: #e3e5eb; --primary: #536be9;
+  --hover: #f1f2f6; --selected: #e7eafa; --danger: #e74755;
+}
+.dark {
+  color-scheme: dark;
+  --background: #16181e; --panel: #1d2028; --panel-alt: #252830;
+  --foreground: #e9eaf0; --muted: #9197a5; --border: #343743; --primary: #99a6ff;
+  --hover: #2b2e37; --selected: #353a55; --danger: #ff7889;
+}
+*{box-sizing:border-box}
+html,body,#root{height:100%;width:100%;margin:0;overflow:hidden}
+body{background:var(--background);color:var(--foreground);font-size:13px;-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit}
+button{cursor:pointer}
+button:disabled{cursor:not-allowed;opacity:.45}
+*:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+::selection{background:var(--selected)}
+::-webkit-scrollbar{width:7px;height:7px}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:20px}
+.window-drag{-webkit-app-region:drag}
+.window-nodrag{-webkit-app-region:no-drag}
+.surface{background:var(--panel)}
+.muted{color:var(--muted)}
+.divider{border-color:var(--border)}
+.hoverable:hover{background:var(--hover)}
+.text-primary{color:var(--primary)}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important}}

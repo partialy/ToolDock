@@ -1,0 +1,16 @@
+node_modules/
+out/
+dist/
+release/
+.vite/
+*.log
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+plans/
+.vscode/
+data/
+coverage/
+*.sqlite
+*.sqlite-*
