@@ -11,6 +11,8 @@ import { HomePage } from '@/pages/HomePage'
 import { ManagerPage } from '@/pages/ManagerPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { KeyGeneratorPage } from '@/pages/KeyGeneratorPage'
+import { JsonToolPage } from '@/pages/JsonToolPage'
+import { builtinByTarget } from '@/shared/builtinToolRegistry'
 import type {Category,Tool} from '@/types/models'
 
 type Editor=({kind:'category';item?:Category}|{kind:'tool';item?:Tool})|null
@@ -64,7 +66,10 @@ export default function App(){
   if(active==='settings')return <SettingsPage ws={ws}/>
   if(active==='about')return <div className="mx-auto max-w-3xl p-12"><div className="mb-4 flex items-center gap-3"><Blocks size={32} className="text-indigo-400"/><h1 className="text-2xl font-semibold">ToolDock</h1></div><p className="mb-5 text-sm muted">桌面工具聚合平台 · v0.1.0</p><p className="text-sm leading-8 muted">React + Electron + shadcn/ui + Tailwind CSS + Motion + SQLite。将常用网页与开发工具集中在一个独立工作区。</p></div>
   if(tool?.type==='link')return <WebTool key={tool.id} toolId={tool.id}/>
-  if(tool?.type==='internal'&&tool.target==='key-generator')return <KeyGeneratorPage key={tool.id}/>
+  if(tool?.type==='internal'&&builtinByTarget(tool.target)){
+   const pages:Record<string,React.ReactNode>={'key-generator':<KeyGeneratorPage key={tool.id}/>,'json-tool':<JsonToolPage key={tool.id}/>}
+   return pages[tool.target]
+  }
   return <div className="p-10 muted">页面不存在或工具已删除。请从侧栏选择工具。</div>
  }
  return <MotionPreferenceContext.Provider value={ws.settings.motion}><MotionConfig reducedMotion={motionOff?'always':'never'}>

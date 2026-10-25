@@ -42,7 +42,7 @@ export function ManagerPage({ws,onEdit}:{ws:Workspace;onEdit:(edit:Edit)=>void})
   <Button variant="ghost" size="icon" title={t.visible?'隐藏':'显示'} onClick={()=>void setVisible(t,category)}>{t.visible?<Eye size={15}/>:<EyeOff size={15}/>}</Button>
   <Button variant="ghost" size="icon" title="编辑" onClick={()=>onEdit(category?{kind:'category',item:t as Category}:{kind:'tool',item:t as Tool})}><Pencil size={15}/></Button>
   {!category&&(t as Tool).type==='link'&&<Button variant="ghost" size="icon" title="清除网页 Cookie 和缓存" onClick={()=>{if(window.confirm('清除「'+t.name+'」的网站登录状态与缓存？'))void ws.execute(()=>window.toolDock.views.clearData(t.id))}}><RotateCcw size={15}/></Button>}
-  {(!category?t.id!=='builtin-key-generator':t.id!=='default')&&<Button variant="danger" size="icon" title="删除" onClick={()=>void remove(t,category)}><Trash2 size={15}/></Button>}
+  {(!category?!(t as Tool).isBuiltin:t.id!=='default')&&<Button variant="danger" size="icon" title="删除" onClick={()=>void remove(t,category)}><Trash2 size={15}/></Button>}
  </div>
  return <div className="mx-auto max-w-5xl space-y-5 p-7">
   <div className="flex flex-wrap items-center justify-between gap-3">

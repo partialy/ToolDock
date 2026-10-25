@@ -1,4 +1,6 @@
 import Database from './sqlite'
+import { migrateJsonTool } from './migrations/002-add-json-tool'
+import { builtinById, builtinByTarget } from '../../../src/shared/builtinToolRegistry'
 import { app } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -41,6 +43,7 @@ export function initStore() {
     for(const [key,value] of Object.entries(defaultPrefs)) db.prepare('INSERT OR IGNORE INTO settings VALUES (?,?)').run(key,JSON.stringify(value))
     db.prepare('INSERT OR IGNORE INTO schema_migrations VALUES (?,?)').run(1,new Date().toISOString())
   })()
+  migrateJsonTool(db)
 }
 export function closeStore() { if(db?.open) { db.pragma('wal_checkpoint(TRUNCATE)'); db.close() } }
 const asCategory=(r:Record<string,unknown>):Category=>({id:String(r.id),name:String(r.name),icon:String(r.icon),sortOrder:Number(r.sort_order),visible:Boolean(r.visible),isSystem:Boolean(r.is_system)})
@@ -76,9 +79,9 @@ export function saveTool(input:Partial<Tool> & {name:string; categoryId:string; 
  if(!input.name.trim()||input.name.trim().length>80)throw Error('工具名称必须为1-80个字符')
  if(!['link','internal'].includes(input.type))throw Error('此工具类型暂未开放')
  if(input.type==='link') {const u=new URL(input.target);if(!['http:','https:'].includes(u.protocol)||u.username||u.password)throw Error('只支持 HTTP(S) 链接且不能包含账号密码')}
- if(input.type==='internal'&&input.target!=='key-generator')throw Error('无效的内置页面')
- if(prev?.is_builtin && (input.type!==prev.type||input.target!==prev.target))throw Error('不可改变预置工具的类型和目标')
- if(input.type==='internal'&&!prev)throw Error('不能自行创建内置工具')
+ if(input.type==='internal'&&!builtinByTarget(input.target))throw Error('无效的内置页面')
+ if(prev?.is_builtin && (input.type!==prev.type||input.target!==prev.target||!builtinById(id)))throw Error('不可改变预置工具的类型和目标')
+ if(input.type==='internal'&&(!prev||!prev.is_builtin||builtinById(id)?.target!==input.target))throw Error('不能自行创建或篡改内置工具')
  const item={id,categoryId:input.categoryId,name:input.name.trim(),icon:input.icon||'wrench',type:input.type,target:input.target,sortOrder:prev?Number(prev.sort_order):(db.prepare('SELECT COALESCE(MAX(sort_order),-1)+1 AS n FROM tools WHERE category_id=?').get(input.categoryId) as {n:number}).n,visible:Number(input.visible??(prev?Boolean(prev.visible):true)),isBuiltin:Number(Boolean(prev?.is_builtin))}
  db.prepare('INSERT INTO tools VALUES (@id,@categoryId,@name,@icon,@type,@target,@sortOrder,@visible,@isBuiltin) ON CONFLICT(id) DO UPDATE SET category_id=excluded.category_id,name=excluded.name,icon=excluded.icon,type=excluded.type,target=excluded.target,sort_order=excluded.sort_order,visible=excluded.visible').run(item)
  return asTool(db.prepare('SELECT * FROM tools WHERE id=?').get(id) as Record<string,unknown>)

@@ -43,3 +43,12 @@ npm run dist
 ## 文档与 Git
 
 开发检查计划记录在本机 `plans/IMPLEMENTATION.md`，整个 `plans/` 按要求加入 `.gitignore`，**不随 Git 提交**。源项目 `E:\Projects\Base\NodeBase` 只作为布局、菜单实现的参考，不修改原仓库。
+
+## Base64 与 JSON 工具（2026-10-25）
+
+- **密钥生成器 → Base64 编解码**：UTF-8 标准 Base64 与 Base64URL、保留/移除填充、自动识别解码、严格尾部位/UTF-8 校验；左右实时转换与复制。
+- **JSON 处理**：内置 `builtin-json-tool`，默认归入「开发工具」；CodeMirror 6 原文/结果编辑器、严格 JSON 校验、重复 Key 提示、格式化/压缩/递归排序、字符串转义/反转义、JSONPath 树形搜索、完整节点复制与 JSON 文件导入导出。
+- JSON 解析与转换在 Vite Worker 中执行；结果带来源修订号，取消通过终止并重建 Worker 实现。默认单个 JSON 输入限制 20 MiB，Base64 文本输入 2 MiB；所有原文仅保留在页面会话内存中。
+- JSON 格式化/排序使用 AST 与原始 token 切片，**不通过 JSON.parse → JSON.stringify 重新序列化**，以保留超大整数、高精度小数和原始字符串字面量；重复 Key 阻止可能误导的变换。
+- SQLite v2 迁移仅增量添加 JSON 工具，不重置旧版用户已修改的分类、工具属性和设置。系统内置工具都允许隐藏、改名、移动、排序，但不可删除。
+- 测试：`npm run typecheck` / `npm test` / `npm run build`。具体执行与验收见被 Git 忽略的 `plans/BASE64_JSON_IMPLEMENTATION.md`。

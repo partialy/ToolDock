@@ -13,3 +13,9 @@
 - UI 使用 Tailwind + shadcn/ui 风格组件、Lucide 与 Motion。统一双主题变量和减少动画设置。
 - 每次修改先运行 npm run typecheck、npm test、npm run build。构建安装包时避免覆盖仍在运行的 release/win-unpacked。
 - 提交信息格式：【模块】【功能】具体变更说明。不得把 node_modules/、out/、release/、plans/、用户数据提交到 Git。
+
+- Base64/JSON 工具保持纯本地处理，不在 IPC、SQLite 或日志中记录输入文本；Base64 不新增独立侧栏入口。
+- 内置工具身份集中于 src/shared/builtinToolRegistry.ts，新增工具须同步实现 SQLite 版本化迁移和测试；迁移不可复活用户已删除的 developer 分类。
+- JSON 无损转换位于 src/lib/json，禁止直接通过 JSON.parse -> JSON.stringify 处理待格式化/排序的原文，以免数值精度和重复键丢失。
+- 大 JSON 在 src/workers/json.worker.ts 解析，React UI 不做同步重量级 AST 遍历；超出限制时显示错误，保留源数据，不执行危险操作。
+- 编辑器使用 src/components/json/JsonEditor.tsx，新增下拉菜单继续复用 SelectField；动效遵循 reduced/off 设置，保持 Header h-[48px] px-1。
