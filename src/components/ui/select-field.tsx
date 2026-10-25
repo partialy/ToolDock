@@ -37,11 +37,11 @@ export function SelectField({
         id={id}
         aria-label={ariaLabel}
         className={cn(
-          'flex h-9 min-w-[118px] items-center justify-between gap-3 rounded-xl border border-[var(--border)]',
+          'flex h-10 min-w-[118px] items-center justify-between gap-3 rounded-xl border border-[var(--border)]',
           'bg-[var(--panel-alt)] px-3 text-left text-xs text-[var(--foreground)] outline-none',
-          'transition-[border-color,background-color,box-shadow] duration-150 hover:border-[var(--primary)]/55 hover:bg-[var(--hover)]',
-          'focus-visible:ring-2 focus-visible:ring-[var(--primary)]/30',
-          'data-[state=open]:border-[var(--primary)] data-[state=open]:ring-2 data-[state=open]:ring-[var(--primary)]/20',
+          'transition-[border-color,background-color] duration-150 hover:border-[var(--primary)]/40 hover:bg-[var(--hover)]',
+          'focus-visible:border-[var(--primary)] focus-visible:outline-none focus-visible:ring-0',
+          'data-[state=open]:border-[var(--primary)] data-[state=open]:ring-0',
           'disabled:cursor-not-allowed disabled:opacity-45', className,
         )}
       >
@@ -80,7 +80,7 @@ export function SelectField({
                     'relative mb-1 flex min-h-9 cursor-pointer select-none items-center gap-2.5 rounded-xl',
                     'border border-transparent px-3 py-2 pr-9 text-xs outline-none last:mb-0',
                     'transition-[background-color,border-color,color,transform] duration-150',
-                    'data-[highlighted]:border-[var(--border)] data-[highlighted]:bg-[var(--hover)]',
+                    'data-[highlighted]:border-[var(--border)] data-[highlighted]:bg-[var(--hover)] focus-visible:outline-none',
                     'data-[state=checked]:border-[var(--primary)]/25 data-[state=checked]:bg-[var(--selected)]',
                     'data-[disabled]:pointer-events-none data-[disabled]:opacity-40',
                   )}

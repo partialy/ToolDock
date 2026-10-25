@@ -49,10 +49,14 @@ export function ManagerPage({ws,onEdit}:{ws:Workspace;onEdit:(edit:Edit)=>void})
    <div><h1 className="text-2xl font-semibold">工具管理</h1><p className="mt-2 text-sm muted">分类与工具的编辑、显隐、排序都在这里。拖动左侧把手可调整顺序。</p></div>
    <Button variant="primary" size="sm" onClick={()=>onEdit(tab==='categories'?{kind:'category'}:{kind:'tool'})}><Plus size={16}/> {tab==='categories'?'新增分类':'新增工具'}</Button>
   </div>
-  <div className="inline-flex rounded-xl bg-[var(--panel-alt)] p-1">
-   {([['categories','分类管理'],['tools','工具管理']] as const).map(([key,label])=><button key={key} className={'rounded-lg px-4 py-2 text-sm '+(tab===key?'bg-[var(--panel)] shadow':'muted')} onClick={()=>setTab(key)}>{label}</button>)}
+  <div className="flex min-h-10 flex-wrap items-center gap-3">
+   <div className="inline-flex h-10 shrink-0 items-center rounded-xl bg-[var(--panel-alt)] p-1">
+    {([['categories','分类管理'],['tools','工具管理']] as const).map(([key,label])=><button key={key} className={'h-8 rounded-lg px-4 text-sm transition-colors duration-150 '+(tab===key?'bg-[var(--panel)] shadow':'muted hover:bg-[var(--hover)]')} onClick={()=>setTab(key)}>{label}</button>)}
+   </div>
+   {tab==='tools'&&<div className="w-[200px] max-w-full shrink-0">
+    <SelectField ariaLabel="筛选所属分类" value={categoryId} onValueChange={setCategoryId} options={ws.categories.map(c=>({value:c.id,label:c.name,icon:<Icon name={c.icon} size={15}/>}))} className="h-10 w-full"/>
+   </div>}
   </div>
-  {tab==='tools'&&<div className="ml-3 inline-block align-middle"><SelectField ariaLabel="筛选所属分类" value={categoryId} onValueChange={setCategoryId} options={ws.categories.map(c=>({value:c.id,label:c.name,icon:<Icon name={c.icon} size={15}/>}))} className="min-w-[164px]"/></div>}
   {tab==='categories'?<DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={e=>void sortCats(e)}>
    <SortableContext items={ordered.map(c=>c.id)} strategy={verticalListSortingStrategy}><div className="space-y-2">{ordered.map(c=><SortableRow key={c.id} id={c.id}>{handle=><>
     <button {...handle} aria-label="拖拽分类" className="touch-none cursor-grab p-1 muted"><GripVertical size={17}/></button>

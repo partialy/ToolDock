@@ -29,7 +29,7 @@ export function SwitchField({
         'border-[var(--border)] bg-[var(--panel-alt)] outline-none',
         'transition-[background-color,border-color,box-shadow] duration-200',
         'data-[state=checked]:border-indigo-500 data-[state=checked]:bg-indigo-500',
-        'focus-visible:ring-2 focus-visible:ring-[var(--primary)]/40 focus-visible:ring-offset-2',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/40 focus-visible:ring-offset-2',
         'focus-visible:ring-offset-[var(--panel)] disabled:opacity-40',
         className,
       )}
