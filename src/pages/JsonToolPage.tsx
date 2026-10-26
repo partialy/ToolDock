@@ -1,6 +1,7 @@
 import {useCallback,useEffect,useRef,useState} from 'react'
 import {Braces,Copy,Download,FileUp,RefreshCw,ArrowRightLeft,X} from 'lucide-react'
 import {Button} from '@/components/ui/button'
+import {ToolPageIcon} from '@/components/ui/tool-page-icon'
 import {SelectField} from '@/components/ui/select-field'
 import {JsonEditor} from '@/components/json/JsonEditor'
 import {JsonDiagnostics} from '@/components/json/JsonDiagnostics'
@@ -69,7 +70,7 @@ export function JsonToolPage(){
  const getNode=useCallback((id:string,mode:'raw'|'display'='raw')=>worker.node(id,revision,mode),[worker,revision])
  return <div className="mx-auto max-w-[1460px] space-y-4 p-6">
   <header className="flex flex-wrap items-center gap-3">
-   <div className="rounded-xl bg-indigo-500/15 p-3 text-indigo-400"><Braces size={22}/></div>
+   <div className="rounded-xl bg-indigo-500/15 p-3 text-indigo-400"><ToolPageIcon size={22}/></div>
    <div className="min-w-0 flex-1"><h1 className="text-xl font-semibold">JSON 处理工具</h1><p className="mt-1 text-xs muted">无损格式化、压缩、排序、转义及树形查看；所有数据仅在本地处理</p></div>
    <input aria-label="导入 JSON 文件" className="hidden" ref={fileRef} type="file" accept=".json,.txt,application/json,text/plain" onChange={e=>{const f=e.target.files?.[0];if(f)void importFile(f);e.target.value=''}}/>
    <Button onClick={()=>fileRef.current?.click()}><FileUp size={15}/> 导入</Button>

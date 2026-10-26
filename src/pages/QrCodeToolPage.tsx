@@ -2,6 +2,7 @@ import {useEffect,useRef,useState} from 'react'
 import {AlertTriangle,CheckCircle2,Download,ImagePlus,LoaderCircle,QrCode,ShieldAlert,Trash2} from 'lucide-react'
 import {Button} from '@/components/ui/button'
 import {SelectField} from '@/components/ui/select-field'
+import {ToolPageIcon} from '@/components/ui/tool-page-icon'
 import {ColorField} from '@/components/ui/color-field'
 import {useDialog} from '@/components/ui/dialog-provider'
 import {QR_THEMES,QR_SIZES,QR_DOT_STYLES,QR_EYE_STYLES,defaultQrConfig,qrPayload,validateQrConfig,effectiveEcc,type QrConfig} from '@/lib/qr/config'
@@ -95,7 +96,7 @@ export function QrCodeToolPage(){
  }
  const bytes=new TextEncoder().encode(cfg.kind==='url'?cfg.url.trim():cfg.text).length
  return <div className="@container mx-auto max-w-[1520px] space-y-4 p-5">
-  <header className="flex flex-wrap items-center gap-3"><span className="rounded-xl bg-indigo-500/15 p-3 text-indigo-400"><QrCode size={24}/></span>
+  <header className="flex flex-wrap items-center gap-3"><span className="rounded-xl bg-indigo-500/15 p-3 text-indigo-400"><ToolPageIcon size={24}/></span>
    <div className="flex-1"><h1 className="text-xl font-semibold">二维码工具</h1><p className="mt-1 text-xs muted">文字与链接 · 主题 · 配色 · Logo · 纯本地生成</p></div>
    <span className="rounded-full border border-[var(--border)] px-3 py-1 text-xs muted">不上传数据</span>
   </header>

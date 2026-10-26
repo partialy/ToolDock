@@ -1,6 +1,9 @@
 import {useCallback,useEffect,useMemo,useState} from 'react'
 import {ArrowDownToLine,ArrowUpFromLine,BellRing,Check,Copy,Download,FolderOpen,HardDrive,MonitorUp,Plus,Power,RefreshCw,ShieldCheck,Trash2,Users,Wifi,X} from 'lucide-react'
 import {Button} from '@/components/ui/button'
+import {SelectField} from '@/components/ui/select-field'
+import {ToolPageIcon} from '@/components/ui/tool-page-icon'
+import {SwitchField} from '@/components/ui/switch-field'
 import {useDialog} from '@/components/ui/dialog-provider'
 import {qrBlob} from '@/lib/qr/render'
 import {defaultQrConfig} from '@/lib/qr/config'
@@ -67,30 +70,28 @@ export function FileTransferPage(){
  }
  const tabs=[{id:'shares',name:'分享文件',count:snapshot?.shares.length||0},{id:'incoming',name:'待接收',count:pending.length},{id:'tasks',name:'传输记录',count:snapshot?.tasks.length||0},{id:'devices',name:'已连接设备',count:snapshot?.devices.length||0}] as const
  return <div className="@container mx-auto max-w-[1460px] space-y-4 p-5">
-  <header className="flex flex-wrap items-center gap-3"><span className="rounded-xl bg-indigo-500/15 p-3 text-indigo-400"><MonitorUp size={24}/></span><div className="min-w-0 flex-1"><h1 className="text-xl font-semibold">文件快传</h1><p className="mt-1 text-xs muted">在可信局域网内共享文件、接收设备上传 · 纯本地传输</p></div>
+  <header className="flex flex-wrap items-center gap-3"><span className="rounded-xl bg-indigo-500/15 p-3 text-indigo-400"><ToolPageIcon size={24}/></span><div className="min-w-0 flex-1"><h1 className="text-xl font-semibold">文件快传</h1><p className="mt-1 text-xs muted">在可信局域网内共享文件、接收设备上传 · 纯本地传输</p></div>
    <span role="status" className={'rounded-full px-3 py-1.5 text-xs '+(snapshot?.running?'bg-emerald-500/10 text-emerald-400':'bg-[var(--panel-alt)] muted')}>{snapshot?.running?'● 运行中':'○ 未启动'}</span>
   </header>
   <div className="grid items-start gap-4 @min-[980px]:grid-cols-[minmax(0,1.25fr)_minmax(300px,.75fr)]">
    <section className={CARD}>
     <div className="flex items-center justify-between"><h2 className="font-semibold"><Wifi size={17} className="mr-2 inline"/>局域网服务器</h2><Button variant={snapshot?.running?'danger':'primary'} disabled={busy||!snapshot} onClick={snapshot?.running?()=>void stop():start}><Power size={15}/>{snapshot?.running?'停止服务':'启动服务'}</Button></div>
     {!snapshot?.running?<div className="space-y-3"><p className="text-xs muted">使用系统随机端口，仅绑定选定的私有 IPv4。首次开放局域网端口时，请在 Windows 防火墙中允许专用网络访问。</p>
-     <label className="block text-xs muted">选择本机网卡 / IPv4</label><select aria-label="快传网卡" value={selectedIp} onChange={e=>setSelectedIp(e.target.value)} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--panel-alt)] px-3 text-xs">{snapshot?.interfaces.map(n=><option value={n.address} key={n.id}>{n.name} — {n.address}</option>)}</select>
+     <label className="block text-xs muted">选择本机网卡 / IPv4</label><SelectField ariaLabel="快传网卡" value={selectedIp} onValueChange={setSelectedIp} options={snapshot?.interfaces.map(n=>({value:n.address,label:n.address,description:n.name}))||[]} placeholder="请选择可用网卡" className="w-full"/>
      {!snapshot?.interfaces.length&&<p className="text-xs text-amber-400">没有找到可用私有网卡，请连接家庭/办公网络。</p>}
     </div>:<div className="space-y-3"><p className="text-xs muted">其他设备访问以下地址，输入访问码，或直接扫描二维码。</p>
       <div className="flex flex-wrap items-center gap-2 rounded-xl bg-[var(--panel-alt)] p-3"><span className="min-w-0 flex-1 break-all font-mono text-sm">{snapshot.url}</span><Button size="sm" onClick={()=>void copy(snapshot.url||'')}><Copy size={14}/> 复制</Button></div>
       <div className="flex items-center gap-3"><div className="flex-1"><div className="text-xs muted">访问码（每次启动重新生成）</div><div className="mt-1 font-mono text-2xl font-bold tracking-[0.2em]">{snapshot.pin}</div></div><Button size="sm" onClick={()=>void copy(snapshot.pin||'')}><Copy size={14}/> 复制访问码</Button></div>
     </div>}
     <div className="grid gap-3 border-t border-[var(--border)] pt-4 @min-[660px]:grid-cols-2">
-     <label className="flex items-center justify-between gap-3 text-xs">允许手机下载 <input type="checkbox" checked={Boolean(snapshot?.prefs.allowDownload)} onChange={e=>void setPrefs({allowDownload:e.target.checked})}/></label>
-     <label className="flex items-center justify-between gap-3 text-xs">允许设备上传 <input type="checkbox" checked={Boolean(snapshot?.prefs.allowUpload)} onChange={e=>void setPrefs({allowUpload:e.target.checked})} disabled={!snapshot?.prefs.receiveDirectory}/></label>
+     <div className="flex items-center justify-between gap-3 text-xs"><span>允许手机下载</span><SwitchField ariaLabel="允许手机下载" checked={Boolean(snapshot?.prefs.allowDownload)} disabled={busy||!snapshot} onCheckedChange={v=>void setPrefs({allowDownload:v})}/></div>
+     <div className="flex items-center justify-between gap-3 text-xs"><span>允许设备上传</span><SwitchField ariaLabel="允许设备上传" checked={Boolean(snapshot?.prefs.allowUpload)} onCheckedChange={v=>void setPrefs({allowUpload:v})} disabled={busy||!snapshot?.prefs.receiveDirectory}/></div>
     </div>
     <div className="grid gap-3 rounded-xl border border-[var(--border)] p-3 @min-[660px]:grid-cols-2">
-     <label className="space-y-1 text-xs muted"><span className="block">单文件上限</span><select aria-label="单文件上限" value={snapshot?.prefs.maxFileBytes||10*1024**3} onChange={e=>{const n=Number(e.target.value);void setPrefs({maxFileBytes:n,maxTempBytes:Math.max(n,snapshot?.prefs.maxTempBytes||n)})}} className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--panel-alt)] px-2">
-      {[1,5,10,20,50].map(n=><option key={n} value={n*1024**3}>{n} GiB</option>)}</select></label>
-     <label className="space-y-1 text-xs muted"><span className="block">暂存容量上限</span><select aria-label="暂存容量上限" value={snapshot?.prefs.maxTempBytes||20*1024**3} onChange={e=>void setPrefs({maxTempBytes:Number(e.target.value)})} className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--panel-alt)] px-2">
-      {[10,20,50,100].filter(n=>n*1024**3>=(snapshot?.prefs.maxFileBytes||10*1024**3)).map(n=><option key={n} value={n*1024**3}>{n} GiB</option>)}</select></label>
-     <label className="space-y-1 text-xs muted"><span className="block">同时上传任务</span><select aria-label="上传并发" value={snapshot?.prefs.maxUploads||2} onChange={e=>void setPrefs({maxUploads:Number(e.target.value)})} className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--panel-alt)] px-2">{[1,2,3,4].map(n=><option key={n}>{n}</option>)}</select></label>
-     <label className="space-y-1 text-xs muted"><span className="block">同时下载任务</span><select aria-label="下载并发" value={snapshot?.prefs.maxDownloads||4} onChange={e=>void setPrefs({maxDownloads:Number(e.target.value)})} className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--panel-alt)] px-2">{[1,2,4,6,8].map(n=><option key={n}>{n}</option>)}</select></label>
+     <div className="space-y-1 text-xs muted"><span className="block">单文件上限</span><SelectField ariaLabel="单文件上限" value={String(snapshot?.prefs.maxFileBytes||10*1024**3)} onValueChange={v=>{const n=Number(v);void setPrefs({maxFileBytes:n,maxTempBytes:Math.max(n,snapshot?.prefs.maxTempBytes||n)})}} options={[1,5,10,20,50].map(n=>({value:String(n*1024**3),label:n+' GiB'}))} className="w-full"/></div>
+     <div className="space-y-1 text-xs muted"><span className="block">暂存容量上限</span><SelectField ariaLabel="暂存容量上限" value={String(snapshot?.prefs.maxTempBytes||20*1024**3)} onValueChange={v=>void setPrefs({maxTempBytes:Number(v)})} options={[10,20,50,100].filter(n=>n*1024**3>=(snapshot?.prefs.maxFileBytes||10*1024**3)).map(n=>({value:String(n*1024**3),label:n+' GiB'}))} className="w-full"/></div>
+     <div className="space-y-1 text-xs muted"><span className="block">同时上传任务</span><SelectField ariaLabel="上传并发" value={String(snapshot?.prefs.maxUploads||2)} onValueChange={v=>void setPrefs({maxUploads:Number(v)})} options={[1,2,3,4].map(n=>({value:String(n),label:n+' 个任务'}))} className="w-full"/></div>
+     <div className="space-y-1 text-xs muted"><span className="block">同时下载任务</span><SelectField ariaLabel="下载并发" value={String(snapshot?.prefs.maxDownloads||4)} onValueChange={v=>void setPrefs({maxDownloads:Number(v)})} options={[1,2,4,6,8].map(n=>({value:String(n),label:n+' 个任务'}))} className="w-full"/></div>
     </div>
     <div className="rounded-xl bg-[var(--panel-alt)] p-3"><div className="flex items-center gap-2 text-xs"><FolderOpen size={15}/> 接收文件目录</div><div className="mt-2 flex flex-wrap items-center gap-2"><span className="min-w-0 flex-1 break-all text-xs muted">{snapshot?.prefs.receiveDirectory||'尚未选择（上传功能不可用）'}</span><Button size="sm" onClick={()=>void run(()=>window.toolDock.transfer.chooseDirectory(),'目录已更新')}>选择目录</Button></div></div>
     <p className="text-[11px] muted">仅供可信局域网使用。HTTP 未加密；访问码不能防止同一网络中的流量窃听。</p>

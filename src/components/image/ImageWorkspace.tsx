@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState} from 'react'
 import {CheckCircle,FileImage,Images,Package,Plus,Scissors,Trash2,Download,Eye,X,AlertTriangle} from 'lucide-react'
 import {Button} from '@/components/ui/button'
+import {ToolPageIcon} from '@/components/ui/tool-page-icon'
 import {Input} from '@/components/ui/input'
 import {SelectField} from '@/components/ui/select-field'
 import {ImageCropDialog} from './ImageCropDialog'
@@ -170,7 +171,7 @@ export function ImageWorkspace({kind}:{kind:'image'|'logo'}){
  const previewResult=outputs.find(o=>o.sourceId===previewId&&o.format!=='ico')||null
  const ready=processedVersion===version&&!!outputs.length
  return <div className="@container mx-auto max-w-[1500px] space-y-4 p-5">
-  <header className="flex flex-wrap items-center gap-3"><div className="rounded-xl bg-indigo-500/15 p-3 text-indigo-400">{logo?<Package size={22}/>:<Images size={22}/>}</div><div className="min-w-0 flex-1"><h1 className="text-xl font-semibold">{logo?'Logo / ICO 生成器':'图片处理'}</h1><p className="mt-1 text-xs muted">{logo?'批量生成标准尺寸 PNG、WebP、JPEG 与多帧 ICO':'图片批量缩放、压缩、格式转换与非破坏式裁剪'} · 完全本地</p></div><Button variant="ghost" disabled={!items.length} onClick={clean}><Trash2 size={14}/> 清空队列</Button></header>
+  <header className="flex flex-wrap items-center gap-3"><div className="rounded-xl bg-indigo-500/15 p-3 text-indigo-400"><ToolPageIcon size={22}/></div><div className="min-w-0 flex-1"><h1 className="text-xl font-semibold">{logo?'Logo / ICO 生成器':'图片处理'}</h1><p className="mt-1 text-xs muted">{logo?'批量生成标准尺寸 PNG、WebP、JPEG 与多帧 ICO':'图片批量缩放、压缩、格式转换与非破坏式裁剪'} · 完全本地</p></div><Button variant="ghost" disabled={!items.length} onClick={clean}><Trash2 size={14}/> 清空队列</Button></header>
   <section className={CARD+' space-y-3'}><div onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();void add(e.dataTransfer.files)}} role="button" tabIndex={0} onKeyDown={e=>{if(e.key==='Enter'||e.key===' ')input.current?.click()}} onClick={()=>input.current?.click()} className="flex min-h-28 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[var(--border)] bg-[var(--panel-alt)] hover:border-[var(--primary)]"><Plus size={24} className="text-indigo-400"/><span className="font-medium">选择或拖拽图片到这里</span><span className="text-xs muted">{logo?'PNG / JPG / WebP / SVG':'PNG / JPG / WebP'} · 50 MiB/张 · 100 张/批</span></div>
    <input ref={input} multiple className="hidden" type="file" accept={logo?'.png,.jpg,.jpeg,.webp,.svg':'image/png,image/jpeg,image/webp'} onChange={e=>{if(e.target.files)void add(e.target.files);e.target.value=''}}/>
   </section>

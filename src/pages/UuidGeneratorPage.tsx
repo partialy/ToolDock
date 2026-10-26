@@ -1,6 +1,7 @@
 import {useState} from 'react'
 import {Copy,Download,Fingerprint,RefreshCw} from 'lucide-react'
 import {Button} from '@/components/ui/button'
+import {ToolPageIcon} from '@/components/ui/tool-page-icon'
 import {SwitchField} from '@/components/ui/switch-field'
 import {generateUuids} from '@/lib/uuid'
 export function UuidGeneratorPage(){
@@ -10,7 +11,7 @@ export function UuidGeneratorPage(){
  const copy=(v:string)=>void navigator.clipboard.writeText(v).catch(()=>setError('复制失败'))
  const download=()=>{if(!results.length)return;const url=URL.createObjectURL(new Blob([results.join('\n')],{type:'text/plain;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='uuid.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
  return <div className="mx-auto max-w-5xl space-y-5 p-6">
-  <div className="flex items-center gap-3"><Fingerprint size={25} className="text-indigo-400"/><div><h1 className="text-xl font-semibold">UUID / GUID 生成</h1><p className="text-xs muted">密码学安全随机 UUID v4 · 本地生成</p></div></div>
+  <div className="flex items-center gap-3"><ToolPageIcon size={25} className="text-indigo-400"/><div><h1 className="text-xl font-semibold">UUID / GUID 生成</h1><p className="text-xs muted">密码学安全随机 UUID v4 · 本地生成</p></div></div>
   <section className="space-y-4 rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5">
    <div className="flex flex-wrap items-center gap-3"><label className="flex items-center gap-2">生成数量<input aria-label="生成数量" type="number" min={1} max={1000} value={count} onChange={e=>setCount(Number(e.target.value))} className="h-10 w-28 rounded-xl border border-[var(--border)] bg-[var(--panel-alt)] px-3"/></label>{[1,5,10,20,50,100].map(n=><Button size="sm" key={n} variant={count===n?'primary':'ghost'} onClick={()=>setCount(n)}>{n}</Button>)}</div>
    <div className="flex flex-wrap gap-6"><label className="flex items-center gap-3">大写字母<SwitchField ariaLabel="大写字母" checked={upper} onCheckedChange={setUpper}/></label><label className="flex items-center gap-3">去除连字符<SwitchField ariaLabel="去除连字符" checked={compact} onCheckedChange={setCompact}/></label></div>

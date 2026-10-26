@@ -1,6 +1,7 @@
 import {useEffect,useState} from 'react'
 import {Clock3,Copy,Pause,Play} from 'lucide-react'
 import {Button} from '@/components/ui/button'
+import {ToolPageIcon} from '@/components/ui/tool-page-icon'
 import {SelectField} from '@/components/ui/select-field'
 import {DateTimeField} from '@/components/ui/date-time-field'
 import {dateToTimestamps,formatLocal,parseLocalDateTime,timestampToDate,type TimestampUnit} from '@/lib/time/timestamp'
@@ -17,7 +18,7 @@ export function TimeConverterPage(){
  const output=(label:string,text:string)=> <div className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--panel-alt)] p-3"><div className="min-w-0 flex-1"><div className="mb-1 text-xs muted">{label}</div><div className="break-all font-mono text-xs">{text}</div></div><Button size="icon" variant="ghost" title={'复制'+label} onClick={()=>copy(text)}><Copy size={15}/></Button></div>
  const clock=new Date(now)
  return <div className="@container mx-auto max-w-[1180px] space-y-5 p-6">
-  <div className="flex items-center gap-3"><Clock3 size={25} className="text-indigo-400"/><div><h1 className="text-xl font-semibold">时间转换</h1><p className="text-xs muted">Unix 秒/毫秒时间戳 · 本地时间 · UTC · ISO 8601</p></div></div>
+  <div className="flex items-center gap-3"><ToolPageIcon size={25} className="text-indigo-400"/><div><h1 className="text-xl font-semibold">时间转换</h1><p className="text-xs muted">Unix 秒/毫秒时间戳 · 本地时间 · UTC · ISO 8601</p></div></div>
   <section className="flex flex-wrap items-center gap-4 rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5">
    <div className="flex-1"><div className="text-xs muted">当前 Unix 时间戳 · 秒</div><div className="mt-2 font-mono text-2xl font-semibold">{Math.floor(now/1000)}</div><div className="mt-1 text-xs muted">{formatLocal(clock)}</div></div>
    <div className="flex-1"><div className="text-xs muted">毫秒</div><div className="mt-2 font-mono text-lg">{now}</div></div>

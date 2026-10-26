@@ -8,6 +8,7 @@ import { EditorDialog } from '@/components/forms/EditorDialog'
 import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/dialog'
 import { DialogProvider } from '@/components/ui/dialog-provider'
+import {ToolPageIconProvider} from '@/components/ui/tool-page-icon'
 import { useWorkspace } from '@/store/useWorkspace'
 import { HomePage } from '@/pages/HomePage'
 import { ManagerPage } from '@/pages/ManagerPage'
@@ -88,7 +89,7 @@ export default function App(){
   }
   return <div className="p-10 muted">页面不存在或工具已删除。请从侧栏选择工具。</div>
  }
- return <MotionPreferenceContext.Provider value={ws.settings.motion}><MotionConfig reducedMotion={motionOff?'always':'never'}><DialogProvider><NotificationProvider position={ws.settings.notificationPosition} onOpenTransfer={()=>{navigate('tool:builtin-file-transfer');setTimeout(()=>window.dispatchEvent(new Event('tooldock:show-incoming')),320)}}>
+ return <MotionPreferenceContext.Provider value={ws.settings.motion}><MotionConfig reducedMotion={motionOff?'always':'never'}><DialogProvider><NotificationProvider position={ws.settings.notificationPosition} previewPositionChanges={!ws.busy} onOpenTransfer={()=>{navigate('tool:builtin-file-transfer');setTimeout(()=>window.dispatchEvent(new Event('tooldock:show-incoming')),320)}}>
   <div className={'flex h-screen w-screen flex-col overflow-hidden bg-[var(--background)] text-[var(--foreground)] '+(ws.settings.theme==='dark'?'dark':'')}>
    <HeaderBar back={()=>stepHistory(position-1)} forward={()=>stepHistory(position+1)} canBack={position>0} canForward={position<history.length-1} title={title} onAddCategory={()=>openEditor({kind:'category'})} onAddTool={()=>openEditor({kind:'tool'})} settings={ws.settings} onTheme={()=>void ws.setPreference('theme',ws.settings.theme==='dark'?'light':'dark')}/>
    <div className="relative flex min-h-0 flex-1">
@@ -96,7 +97,7 @@ export default function App(){
     {!collapsed&&<div className="absolute top-0 z-20 h-full w-1 cursor-col-resize hover:bg-indigo-500/40" style={{left:ws.settings.sidebarWidth-2}} onPointerDown={e=>{drag.current={startX:e.clientX,startWidth:ws.settings.sidebarWidth};e.currentTarget.setPointerCapture(e.pointerId)}} onPointerUp={e=>{if(drag.current){void setSidebarWidth(drag.current.startWidth+e.clientX-drag.current.startX);drag.current=null;e.currentTarget.releasePointerCapture(e.pointerId)}}} onPointerMove={e=>{if(drag.current){const w=Math.max(200,Math.min(440,drag.current.startWidth+e.clientX-drag.current.startX));e.currentTarget.style.left=(w-2)+'px'}}}/>}
     <main className="relative min-w-0 flex-1 overflow-auto" aria-label="工具内容">
      {ws.busy?<div className="p-8 muted">正在打开 ToolDock…</div>:<AnimatePresence mode="wait">
-      <motion.div key={active} initial={{opacity:0,y:motionOff?0:4}} animate={{opacity:1,y:0}} exit={{opacity:0,y:motionOff?0:-3}} transition={{duration:motionOff?0:.16}} className="h-full min-h-0 w-full">{body()}</motion.div>
+      <motion.div key={active} initial={{opacity:0,y:motionOff?0:4}} animate={{opacity:1,y:0}} exit={{opacity:0,y:motionOff?0:-3}} transition={{duration:motionOff?0:.16}} className="h-full min-h-0 w-full"><ToolPageIconProvider name={tool?.icon}>{body()}</ToolPageIconProvider></motion.div>
      </AnimatePresence>}
     </main>
    </div>

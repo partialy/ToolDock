@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Copy, Download, Eye, EyeOff, KeyRound, RefreshCw, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {ToolPageIcon} from '@/components/ui/tool-page-icon'
 import { Input } from '@/components/ui/input'
 import { SelectField } from '@/components/ui/select-field'
 import { SwitchField } from '@/components/ui/switch-field'
@@ -43,7 +44,7 @@ export function KeyGeneratorPage(){
   <textarea readOnly value={sensitive&&!showSecret?'••••••••••••••••••••••••••••••••':value} aria-label={title} className="h-36 w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--panel-alt)] p-3 font-mono text-xs outline-none"/>
  </section>
  return <div className="mx-auto max-w-4xl space-y-6 p-8">
-  <div className="flex items-center gap-3"><div className="rounded-xl bg-indigo-500/15 p-3 text-indigo-400"><KeyRound size={24}/></div><div><h1 className="text-2xl font-semibold">密钥生成器</h1><p className="mt-1 text-sm muted">本地生成标准密钥，默认不保存私钥和随机密钥。</p></div></div>
+  <div className="flex items-center gap-3"><div className="rounded-xl bg-indigo-500/15 p-3 text-indigo-400"><ToolPageIcon size={24}/></div><div><h1 className="text-2xl font-semibold">密钥生成器</h1><p className="mt-1 text-sm muted">本地生成标准密钥，默认不保存私钥和随机密钥。</p></div></div>
   <div className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5">
    <div className="mb-5 flex flex-wrap gap-2">{([['ssh','SSH 密钥'],['rsa','RSA 密钥'],['ecc','ECC 签名'],['aes','AES 密钥'],['random','随机字符串'],['base64','Base64 编解码']] as const).map(([k,label])=><button key={k} onClick={()=>chooseKind(k)} className={'rounded-lg px-4 py-2 text-xs font-medium transition-colors '+(kind===k?'bg-indigo-500 text-white':'bg-[var(--panel-alt)] hover:bg-[var(--hover)]')}>{label}</button>)}</div>
    {kind==='base64' ? <Base64Panel/> : <><div className="grid gap-4 sm:grid-cols-2">

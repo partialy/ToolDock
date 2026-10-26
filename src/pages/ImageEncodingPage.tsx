@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState} from 'react'
 import {ArrowLeftRight,Binary,Copy,FileCode2,RefreshCw,X} from 'lucide-react'
 import {Button} from '@/components/ui/button'
+import {ToolPageIcon} from '@/components/ui/tool-page-icon'
 import {SelectField} from '@/components/ui/select-field'
 import {ImageEncodingInput} from '@/components/image-encoding/ImageEncodingInput'
 import {ImageEncodingResult,type EncodingResultState} from '@/components/image-encoding/ImageEncodingResult'
@@ -88,7 +89,7 @@ export function ImageEncodingPage(){
  const reset=()=>{setFile(null);setText('');setResult(null);setResultVersion(-1);change()}
  return <div className="@container mx-auto max-w-[1480px] space-y-4 p-5">
   <header className="flex flex-wrap items-center gap-3">
-   <span className="rounded-xl bg-indigo-500/15 p-3 text-indigo-400"><FileCode2 size={23}/></span>
+   <span className="rounded-xl bg-indigo-500/15 p-3 text-indigo-400"><ToolPageIcon size={23}/></span>
    <div className="min-w-0 flex-1"><h1 className="text-xl font-semibold">图片编码</h1><p className="mt-1 text-xs muted">图片与 Base64 / Data URL 双向无损转换 · 纯本地、不上传</p></div>
    <Button variant="ghost" onClick={reset}><X size={15}/> 清空工作区</Button>
   </header>
