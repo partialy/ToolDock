@@ -26,13 +26,13 @@ afterEach(() => {
 
 describe('分类与 SQLite 持久化', () => {
   it('首次启动有预置工具，删除非空分类后迁移到默认分类且重启不复活', () => {
-    expect(listCategories().map(c => c.id)).toEqual(['default', 'developer', 'images'])
+    expect(listCategories().map(c => c.id)).toEqual(['default', 'developer', 'images', 'files'])
     expect(listTools().find(t => t.id === 'builtin-key-generator')?.categoryId).toBe('developer')
     removeCategory('developer')
     expect(listTools().find(t => t.id === 'builtin-key-generator')?.categoryId).toBe('default')
     closeStore()
     initStore()
-    expect(listCategories().map(c => c.id)).toEqual(['default', 'images'])
+    expect(listCategories().map(c => c.id)).toEqual(['default', 'images', 'files'])
     expect(listTools().find(t => t.id === 'builtin-key-generator')?.categoryId).toBe('default')
   })
   it('默认分类允许改名和隐藏，但禁止删除', () => {
@@ -58,7 +58,7 @@ describe('分类与 SQLite 持久化', () => {
 
 describe('SQLite v2 JSON 内置工具增量升级', () => {
  it('全新安装注册两个不可删除的内置工具',()=>{
-  expect(listTools().filter(x=>x.isBuiltin).map(x=>x.id).sort()).toEqual(['builtin-image-encoding','builtin-image-processor','builtin-json-tool','builtin-key-generator','builtin-logo-icon-generator','builtin-qr-code-tool','builtin-time-converter','builtin-uuid-generator'])
+  expect(listTools().filter(x=>x.isBuiltin).map(x=>x.id).sort()).toEqual(['builtin-file-transfer','builtin-image-encoding','builtin-image-processor','builtin-json-tool','builtin-key-generator','builtin-logo-icon-generator','builtin-qr-code-tool','builtin-time-converter','builtin-uuid-generator'])
   expect(()=>removeTool('builtin-json-tool')).toThrow('内置工具')
  })
  it('模拟 v1 升级时保留重命名且隐藏的 developer 分类',()=>{
@@ -74,7 +74,7 @@ describe('SQLite v2 JSON 内置工具增量升级', () => {
   getDb().prepare("DELETE FROM tools WHERE id='builtin-json-tool'").run()
   getDb().prepare('DELETE FROM schema_migrations WHERE version=2').run()
   closeStore();initStore()
-  expect(listCategories().map(x=>x.id)).toEqual(['default','images'])
+  expect(listCategories().map(x=>x.id)).toEqual(['default','images','files'])
   expect(listTools().find(x=>x.id==='builtin-json-tool')).toMatchObject({categoryId:'default',isBuiltin:true})
   closeStore();initStore()
   expect(listTools().filter(x=>x.id==='builtin-json-tool')).toHaveLength(1)
@@ -187,5 +187,37 @@ describe('SQLite v5 二维码工具安全迁移',()=>{
   getDb().prepare("UPDATE tools SET target='invalid-target' WHERE id=?").run(id)
   closeStore();expect(()=>initStore()).toThrow('固定 ID 存在冲突')
   expect(getDb().prepare('SELECT 1 FROM schema_migrations WHERE version=5').get()).toBeUndefined()
+ })
+})
+
+describe('SQLite v6 文件快传与通知设置',()=>{
+ const id='builtin-file-transfer'
+ it('全新数据库新增内置工具、文件分类与默认右下角',()=>{
+  expect(listCategories().find(x=>x.id==='files')?.name).toBe('文件工具')
+  expect(listTools().find(x=>x.id===id)).toMatchObject({target:'file-transfer',isBuiltin:true,categoryId:'files'})
+  expect(getSettings().notificationPosition).toBe('bottom-right')
+  expect(getSettings().fileTransferPrefs.allowUpload).toBe(false)
+  expect(getDb().prepare('SELECT 1 FROM schema_migrations WHERE version=6').get()).toBeTruthy()
+  expect(()=>removeTool(id)).toThrow('内置工具')
+ })
+ it('删除文件分类后重启不恢复分类，工具移入默认',()=>{
+  removeCategory('files');closeStore();initStore()
+  expect(listCategories().some(x=>x.id==='files')).toBe(false)
+  expect(listTools().find(x=>x.id===id)?.categoryId).toBe('default')
+ })
+ it('允许修改内置工具显示名与隐藏选项，同时保留设置',()=>{
+  const item=listTools().find(x=>x.id===id)!
+  saveTool({...item,name:'局域网分享',visible:false,icon:'network'})
+  putSetting('notificationPosition','top-left')
+  closeStore();initStore()
+  expect(listTools().find(x=>x.id===id)).toMatchObject({name:'局域网分享',visible:false,icon:'network'})
+  expect(getSettings().notificationPosition).toBe('top-left')
+ })
+ it('升级时冲突回滚，不生成不完整 v6 标记',()=>{
+  getDb().prepare('DELETE FROM schema_migrations WHERE version=6').run()
+  getDb().prepare("UPDATE tools SET target='fake-target' WHERE id=?").run(id)
+  closeStore()
+  expect(()=>initStore()).toThrow('文件快传内置 ID 存在冲突')
+  expect(getDb().prepare('SELECT 1 FROM schema_migrations WHERE version=6').get()).toBeUndefined()
  })
 })

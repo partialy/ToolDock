@@ -3,6 +3,8 @@ import { migrateJsonTool } from './migrations/002-add-json-tool'
 import { migrateImageDevtools } from './migrations/003-add-image-devtools'
 import { migrateImageEncoding } from './migrations/004-add-image-encoding'
 import { migrateQrCodeTool } from './migrations/005-add-qr-code-tool'
+import { migrateFileTransfer } from './migrations/006-add-file-transfer'
+import {TRANSFER_DEFAULTS} from '../../../src/shared/fileTransferModels'
 import { builtinById, builtinByTarget } from '../../../src/shared/builtinToolRegistry'
 import { app } from 'electron'
 import fs from 'node:fs'
@@ -12,7 +14,7 @@ import type { Category, Tool, Settings, DataInfo } from '../../../src/types/mode
 
 let db: Database
 let dataRoot = ''
-const defaultPrefs: Settings = { theme: 'dark', motion: 'normal', showDefaultTag: true, allowHttp: false, sidebarWidth: 252 }
+const defaultPrefs: Settings = { theme: 'dark', motion: 'normal', showDefaultTag: true, allowHttp: false, sidebarWidth: 252,notificationPosition:'bottom-right',fileTransferPrefs:TRANSFER_DEFAULTS }
 const bootstrapFile = () => path.join(app.getPath('userData'), 'bootstrap.json')
 export const defaultDataRoot = () => path.join(app.getPath('userData'), 'data')
 export function getDataRoot() { return dataRoot }
@@ -50,6 +52,7 @@ export function initStore() {
   migrateImageDevtools(db)
   migrateImageEncoding(db)
   migrateQrCodeTool(db)
+  migrateFileTransfer(db)
 }
 export function closeStore() { if(db?.open) { db.pragma('wal_checkpoint(TRUNCATE)'); db.close() } }
 const asCategory=(r:Record<string,unknown>):Category=>({id:String(r.id),name:String(r.name),icon:String(r.icon),sortOrder:Number(r.sort_order),visible:Boolean(r.visible),isSystem:Boolean(r.is_system)})
@@ -107,6 +110,24 @@ export function getSettings():Settings {
  const rows=db.prepare('SELECT * FROM settings').all() as {key:string;value_json:string}[]
  const result:Record<string,unknown>={...defaultPrefs}
  rows.forEach(row=>{if(row.key in defaultPrefs)try{result[row.key]=JSON.parse(row.value_json)}catch{}})
+ if(!['top-left','top-right','bottom-left','bottom-right'].includes(String(result.notificationPosition)))result.notificationPosition='bottom-right'
+ const raw=result.fileTransferPrefs
+ const input=raw&&typeof raw==='object'&&!Array.isArray(raw)?raw as Record<string,unknown>:{}
+ const prefs={...TRANSFER_DEFAULTS}
+ if(input.receiveDirectory===null||(typeof input.receiveDirectory==='string'&&input.receiveDirectory.length<=4096))prefs.receiveDirectory=input.receiveDirectory as string|null
+ if(typeof input.allowDownload==='boolean')prefs.allowDownload=input.allowDownload
+ if(typeof input.allowUpload==='boolean')prefs.allowUpload=input.allowUpload
+ const positive=(key:'maxFileBytes'|'maxTempBytes'|'maxUploads'|'maxDownloads',min:number,max:number)=>{
+  const n=input[key]
+  if(typeof n==='number'&&Number.isSafeInteger(n)&&n>=min&&n<=max)prefs[key]=n
+ }
+ positive('maxFileBytes',1024**2,50*1024**3)
+ positive('maxTempBytes',1024**2,100*1024**3)
+ positive('maxUploads',1,4)
+ positive('maxDownloads',1,8)
+ if(prefs.maxTempBytes<prefs.maxFileBytes)prefs.maxTempBytes=Math.max(TRANSFER_DEFAULTS.maxTempBytes,prefs.maxFileBytes)
+ if(!prefs.receiveDirectory)prefs.allowUpload=false
+ result.fileTransferPrefs=prefs
  return result as unknown as Settings
 }
 export function putSetting(key:keyof Settings,value:Settings[keyof Settings]):Settings {

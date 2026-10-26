@@ -19,6 +19,16 @@ const api={
   backup:()=>invoke('data:backup'),restore:()=>invoke('data:restore'),restart:()=>invoke('data:restart'),
   exportLogs:()=>invoke('data:exportLogs'),clearLogs:()=>invoke('data:clearLogs')
  },
+ transfer:{
+  interfaces:()=>invoke('transfer:interfaces'),status:()=>invoke('transfer:status'),start:(address:string)=>invoke('transfer:start',address),stop:()=>invoke('transfer:stop'),
+  chooseShares:()=>invoke('transfer:chooseShares'),removeShare:(id:string)=>invoke('transfer:removeShare',id),
+  chooseDirectory:()=>invoke('transfer:chooseDirectory'),setPrefs:(prefs:unknown)=>invoke('transfer:setPrefs',prefs),
+  approve:(id:string)=>invoke('transfer:approve',id),reject:(id:string)=>invoke('transfer:reject',id),
+  approveMany:(ids:string[])=>invoke('transfer:approveMany',ids),rejectMany:(ids:string[])=>invoke('transfer:rejectMany',ids),
+  cancelTask:(id:string)=>invoke('transfer:cancelTask',id),revokeDevice:(id:string)=>invoke('transfer:revokeDevice',id),
+  onChange:(cb:(data:unknown)=>void)=>{const fn=(_e:Electron.IpcRendererEvent,data:unknown)=>cb(data);ipcRenderer.on('transfer:changed',fn);return()=>ipcRenderer.off('transfer:changed',fn)},
+  onPending:(cb:(data:unknown)=>void)=>{const fn=(_e:Electron.IpcRendererEvent,data:unknown)=>cb(data);ipcRenderer.on('transfer:pending',fn);return()=>ipcRenderer.off('transfer:pending',fn)}
+ },
  export:{
   start:(name:string,format:string)=>invoke('export:start',{name,format}),
   chunk:(id:string,bytes:Uint8Array)=>invoke('export:chunk',{id,bytes}),

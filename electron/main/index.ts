@@ -8,6 +8,7 @@ import { initMarker, chooseDataFolder, migrateData, deleteOldData, openDataFolde
 import { generateRsa, generateSsh, generateEc, generateAes, generateRandom } from './services/crypto'
 import { initLog, recordEvent, exportLogs, clearLogs } from './services/log'
 import {beginFileExport,appendExportChunk,finishFileExport,cancelFileExport,disposeAllExports} from './services/file-export'
+import {fileTransfer} from './services/transfer'
 
 const devMode=!app.isPackaged
 app.setName(devMode?'ToolDock-Dev':'ToolDock')
@@ -39,13 +40,29 @@ function channels(){
  register('tools:reorder',(a:unknown)=>{const input=z.object({categoryId:text,ids:order}).parse(a);return reorderTools(input.categoryId,input.ids)})
  register('settings:get',()=>getSettings())
  register('settings:set',(a:unknown)=>{
-  const {key,value}=z.object({key:z.enum(['theme','motion','showDefaultTag','allowHttp','sidebarWidth']),value:z.unknown()}).parse(a)
+  const {key,value}=z.object({key:z.enum(['theme','motion','showDefaultTag','allowHttp','sidebarWidth','notificationPosition','fileTransferPrefs']),value:z.unknown()}).parse(a)
+  if(key==='notificationPosition'&&!['top-left','top-right','bottom-left','bottom-right'].includes(String(value)))throw Error('通知位置无效')
+  if(key==='fileTransferPrefs')throw Error('文件快传配置必须通过受限专用接口修改')
   if(key==='theme'&&!['dark','light'].includes(String(value)))throw Error('无效主题')
   if(key==='motion'&&!['normal','reduced','off'].includes(String(value)))throw Error('无效动画偏好')
   if(['allowHttp','showDefaultTag'].includes(key)&&typeof value!=='boolean')throw Error('无效布尔设置')
   if(key==='sidebarWidth'&&(typeof value!=='number'||value<200||value>440))throw Error('侧栏宽度超出范围')
   return putSetting(key,value as never)
  })
+ register('transfer:interfaces',()=>fileTransfer.getInterfaces())
+ register('transfer:status',()=>fileTransfer.getSnapshot())
+ register('transfer:start',(a:unknown)=>fileTransfer.start(z.ipv4().parse(a)))
+ register('transfer:stop',()=>fileTransfer.stop())
+ register('transfer:chooseShares',()=>fileTransfer.chooseShares(win!))
+ register('transfer:removeShare',(a:unknown)=>fileTransfer.removeShare(z.string().uuid().parse(a)))
+ register('transfer:chooseDirectory',async()=>{const folder=await fileTransfer.chooseDirectory(win!);if(folder){const p=fileTransfer.getPrefs();putSetting('fileTransferPrefs',p)}return folder})
+ register('transfer:setPrefs',(a:unknown)=>{const next=z.object({allowDownload:z.boolean(),allowUpload:z.boolean(),maxFileBytes:z.number().int(),maxTempBytes:z.number().int(),maxUploads:z.number().int(),maxDownloads:z.number().int()}).parse(a);const p=fileTransfer.setPrefs({...fileTransfer.getPrefs(),...next});putSetting('fileTransferPrefs',p);return p})
+ register('transfer:approve',(a:unknown)=>fileTransfer.approve(z.string().uuid().parse(a)))
+ register('transfer:reject',(a:unknown)=>fileTransfer.reject(z.string().uuid().parse(a)))
+ register('transfer:approveMany',(a:unknown)=>fileTransfer.approveMany(z.array(z.string().uuid()).max(200).parse(a)))
+ register('transfer:rejectMany',(a:unknown)=>fileTransfer.rejectMany(z.array(z.string().uuid()).max(200).parse(a)))
+ register('transfer:cancelTask',(a:unknown)=>fileTransfer.cancelTask(z.string().uuid().parse(a)))
+ register('transfer:revokeDevice',(a:unknown)=>fileTransfer.revokeDevice(z.string().min(5).max(64).parse(a)))
  register('views:open',(a:unknown)=>openWebview(win!,text.parse(a)))
  register('views:bounds',(a:unknown)=>setWebBounds(dimensions.parse(a)))
  register('views:hide',()=>hideWebview(win!))
@@ -54,11 +71,11 @@ function channels(){
  register('views:clearData',(id:unknown)=>clearWebData(win!,text.parse(id)))
  register('data:info',()=>getDataInfo())
  register('data:choose',()=>chooseDataFolder(win!))
- register('data:migrate',(a:unknown)=>migrateData(win!,z.string().min(3).max(1024).parse(a)))
+ register('data:migrate',(a:unknown)=>{if(fileTransfer.getSnapshot().running)throw Error('请先停止文件快传服务再迁移数据目录');return migrateData(win!,z.string().min(3).max(1024).parse(a))})
  register('data:deleteOld',(a:unknown)=>deleteOldData(text.parse(a)))
  register('data:openFolder',()=>openDataFolder())
  register('data:backup',()=>backupData(win!))
- register('data:restore',()=>restoreData(win!))
+ register('data:restore',()=>{if(fileTransfer.getSnapshot().running)throw Error('请先停止文件快传服务并处理待接收文件，再恢复数据备份');return restoreData(win!)})
  register('data:exportLogs',()=>exportLogs(win!))
  register('data:clearLogs',()=>clearLogs())
  register('data:restart',()=>{app.relaunch();app.quit()})
@@ -99,8 +116,8 @@ function createWindow(){
  if(devMode)w.webContents.openDevTools({mode:'detach'})
 }
 app.whenReady().then(()=>{
- try{initStore();initMarker();initLog();recordEvent('app-start');channels();createWindow()}
+ try{initStore();initMarker();initLog();void fileTransfer.cleanupAbandoned();recordEvent('app-start');channels();createWindow();const prefs=getSettings().fileTransferPrefs;fileTransfer.setPrefs(prefs);if(win)fileTransfer.setWindow(win);fileTransfer.on('change',()=>{}); }
  catch(e){dialog.showErrorBox('ToolDock 初始化失败',e instanceof Error?e.stack||e.message:String(e));app.quit()}
 })
 app.on('window-all-closed',()=>app.quit())
-app.on('before-quit',()=>{if(!closing){closing=true;try{disposeAllExports();closeStore()}catch{}}})
+app.on('before-quit',e=>{if(!closing){closing=true;e.preventDefault();void fileTransfer.stop().finally(()=>{try{disposeAllExports();closeStore()}catch{};app.quit()})}})
