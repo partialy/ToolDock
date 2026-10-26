@@ -2,6 +2,7 @@ import Database from './sqlite'
 import { migrateJsonTool } from './migrations/002-add-json-tool'
 import { migrateImageDevtools } from './migrations/003-add-image-devtools'
 import { migrateImageEncoding } from './migrations/004-add-image-encoding'
+import { migrateQrCodeTool } from './migrations/005-add-qr-code-tool'
 import { builtinById, builtinByTarget } from '../../../src/shared/builtinToolRegistry'
 import { app } from 'electron'
 import fs from 'node:fs'
@@ -48,6 +49,7 @@ export function initStore() {
   migrateJsonTool(db)
   migrateImageDevtools(db)
   migrateImageEncoding(db)
+  migrateQrCodeTool(db)
 }
 export function closeStore() { if(db?.open) { db.pragma('wal_checkpoint(TRUNCATE)'); db.close() } }
 const asCategory=(r:Record<string,unknown>):Category=>({id:String(r.id),name:String(r.name),icon:String(r.icon),sortOrder:Number(r.sort_order),visible:Boolean(r.visible),isSystem:Boolean(r.is_system)})

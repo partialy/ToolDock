@@ -4,6 +4,7 @@ export const BUILTIN_TOOLS = [
   { id:'builtin-image-processor', target:'image-processor', name:'图片处理', icon:'images', defaultCategoryId:'images' },
   { id:'builtin-logo-icon-generator', target:'logo-icon-generator', name:'Logo / ICO 生成', icon:'app-window', defaultCategoryId:'images' },
   { id:'builtin-image-encoding', target:'image-encoding', name:'图片编码', icon:'file-code-2', defaultCategoryId:'images' },
+  { id:'builtin-qr-code-tool', target:'qr-code-tool', name:'二维码工具', icon:'qr-code', defaultCategoryId:'images' },
   { id:'builtin-time-converter', target:'time-converter', name:'时间转换', icon:'clock-3', defaultCategoryId:'developer' },
   { id:'builtin-uuid-generator', target:'uuid-generator', name:'UUID 生成', icon:'fingerprint', defaultCategoryId:'developer' }
 ] as const

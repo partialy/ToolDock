@@ -58,7 +58,7 @@ describe('分类与 SQLite 持久化', () => {
 
 describe('SQLite v2 JSON 内置工具增量升级', () => {
  it('全新安装注册两个不可删除的内置工具',()=>{
-  expect(listTools().filter(x=>x.isBuiltin).map(x=>x.id).sort()).toEqual(['builtin-image-encoding','builtin-image-processor','builtin-json-tool','builtin-key-generator','builtin-logo-icon-generator','builtin-time-converter','builtin-uuid-generator'])
+  expect(listTools().filter(x=>x.isBuiltin).map(x=>x.id).sort()).toEqual(['builtin-image-encoding','builtin-image-processor','builtin-json-tool','builtin-key-generator','builtin-logo-icon-generator','builtin-qr-code-tool','builtin-time-converter','builtin-uuid-generator'])
   expect(()=>removeTool('builtin-json-tool')).toThrow('内置工具')
  })
  it('模拟 v1 升级时保留重命名且隐藏的 developer 分类',()=>{
@@ -110,6 +110,8 @@ describe('SQLite v3 原生工具增量升级',()=>{
   const ids=['builtin-image-processor','builtin-logo-icon-generator','builtin-time-converter','builtin-uuid-generator']
   for(const id of ids)getDb().prepare('DELETE FROM tools WHERE id=?').run(id)
   getDb().prepare("DELETE FROM tools WHERE id='builtin-image-encoding'").run()
+  getDb().prepare("DELETE FROM tools WHERE id='builtin-qr-code-tool'").run()
+  getDb().prepare('DELETE FROM schema_migrations WHERE version=5').run()
   getDb().prepare('DELETE FROM schema_migrations WHERE version=4').run()
   getDb().prepare("DELETE FROM categories WHERE id='images'").run()
   getDb().prepare('DELETE FROM schema_migrations WHERE version=3').run()
@@ -155,5 +157,35 @@ describe('SQLite v4 图片编码工具增量升级',()=>{
   closeStore()
   expect(()=>initStore()).toThrow('图片编码内置工具 ID 冲突')
   expect(getDb().prepare('SELECT 1 FROM schema_migrations WHERE version=4').get()).toBeUndefined()
+ })
+})
+
+describe('SQLite v5 二维码工具安全迁移',()=>{
+ const id='builtin-qr-code-tool'
+ it('新装包含内置二维码工具，不能被用户删除',()=>{
+  expect(listTools().find(x=>x.id===id)).toMatchObject({categoryId:'images',target:'qr-code-tool',isBuiltin:true})
+  expect(getDb().prepare('SELECT version FROM schema_migrations WHERE version=5').get()).toBeTruthy()
+  expect(()=>removeTool(id)).toThrow('内置工具')
+ })
+ it('用户删除 images 后，v5 升级不能复活原分类',()=>{
+  removeCategory('images')
+  getDb().prepare('DELETE FROM tools WHERE id=?').run(id)
+  getDb().prepare('DELETE FROM schema_migrations WHERE version=5').run()
+  closeStore();initStore()
+  expect(listCategories().some(x=>x.id==='images')).toBe(false)
+  expect(listTools().find(x=>x.id===id)).toMatchObject({categoryId:'default'})
+ })
+ it('重启保留用户重命名、隐藏与图标选择',()=>{
+  const old=listTools().find(x=>x.id===id)!
+  saveTool({...old,name:'我专属的 QR',visible:false,icon:'star',categoryId:'default'})
+  closeStore();initStore()
+  expect(listTools().filter(x=>x.id===id)).toHaveLength(1)
+  expect(listTools().find(x=>x.id===id)).toMatchObject({name:'我专属的 QR',visible:false,icon:'star',categoryId:'default'})
+ })
+ it('存在伪造内置身份时整次迁移回滚',()=>{
+  getDb().prepare('DELETE FROM schema_migrations WHERE version=5').run()
+  getDb().prepare("UPDATE tools SET target='invalid-target' WHERE id=?").run(id)
+  closeStore();expect(()=>initStore()).toThrow('固定 ID 存在冲突')
+  expect(getDb().prepare('SELECT 1 FROM schema_migrations WHERE version=5').get()).toBeUndefined()
  })
 })
