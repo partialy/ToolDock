@@ -31,3 +31,5 @@
 - 二维码工具：固定内置 ID builtin-qr-code-tool，路由 qr-code-tool；依赖 SQLite v5 增量迁移，不复活已经删除的 images 分类。完整 UI 配置/Logo 不持久化或联网，始终采用 UTF-8 原始文本编码到 Byte mode 的字节序列，严禁直接把 Unicode 字符串交给 qr-code-styling Byte mode（会截断中文/Emoji）。
 - 二维码 PNG/WebP/SVG 只导出经安全生成的本地结果。点阵及定位角颜色必须分别与背景达到至少 4.5:1；最终图像由本地 jsQR 扫码验证。验证失败可告知风险后选择导出，但不得当作扫码通过；SVG Logo 必须内嵌且无脚本/外链。
 - 所有应用内普通/危险操作使用 DialogProvider/useDialog 或 DialogShell，禁止 window.confirm、window.alert、window.prompt。危险操作默认聚焦取消；异步 confirmAction 禁止重复触发。Electron 原生打开/保存文件窗及备份恢复主进程最终安全确认保留不替换。
+
+- 文本 / JSON 差异对比固定内置 ID 为 builtin-text-diff、路由 text-diff；通过 SQLite v7 增量注册，不恢复已删除的开发分类，不修改用户工具名称、位置、图标或可见性。编辑采用 CodeMirror，比较使用独立 diff.worker.ts 与虚拟行列表。输入仅在当前页内存保留，不写入数据库、IPC 或日志。JSON 对象键忽略排序使用现有无损 AST 变换，数组顺序不忽略，重复键拒绝比较；单侧限制 2 MiB / 10000 行，超高差异编辑距离安全降级整段显示。

@@ -15,6 +15,7 @@ import { ManagerPage } from '@/pages/ManagerPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { KeyGeneratorPage } from '@/pages/KeyGeneratorPage'
 import { JsonToolPage } from '@/pages/JsonToolPage'
+import { TextDiffPage } from '@/pages/TextDiffPage'
 import { ImageProcessorPage } from '@/pages/ImageProcessorPage'
 import { LogoIconGeneratorPage } from '@/pages/LogoIconGeneratorPage'
 import { ImageEncodingPage } from '@/pages/ImageEncodingPage'
@@ -84,7 +85,7 @@ export default function App(){
   if(active==='about')return <div className="mx-auto max-w-3xl p-12"><div className="mb-4 flex items-center gap-3"><Blocks size={32} className="text-indigo-400"/><h1 className="text-2xl font-semibold">ToolDock</h1></div><p className="mb-5 text-sm muted">桌面工具聚合平台 · v0.1.0</p><p className="text-sm leading-8 muted">React + Electron + shadcn/ui + Tailwind CSS + Motion + SQLite。将常用网页与开发工具集中在一个独立工作区。</p></div>
   if(tool?.type==='link')return <WebTool key={tool.id} toolId={tool.id}/>
   if(tool?.type==='internal'&&builtinByTarget(tool.target)){
-   const pages:Record<string,React.ReactNode>={'key-generator':<KeyGeneratorPage key={tool.id}/>,'json-tool':<JsonToolPage key={tool.id}/>,'image-processor':<ImageProcessorPage key={tool.id}/>,'logo-icon-generator':<LogoIconGeneratorPage key={tool.id}/>,'image-encoding':<ImageEncodingPage key={tool.id}/>,'qr-code-tool':<QrCodeToolPage key={tool.id}/>,'file-transfer':<FileTransferPage key={tool.id}/>,'time-converter':<TimeConverterPage key={tool.id}/>,'uuid-generator':<UuidGeneratorPage key={tool.id}/>}
+   const pages:Record<string,React.ReactNode>={'key-generator':<KeyGeneratorPage key={tool.id}/>,'json-tool':<JsonToolPage key={tool.id}/>,'text-diff':<TextDiffPage key={tool.id}/>,'image-processor':<ImageProcessorPage key={tool.id}/>,'logo-icon-generator':<LogoIconGeneratorPage key={tool.id}/>,'image-encoding':<ImageEncodingPage key={tool.id}/>,'qr-code-tool':<QrCodeToolPage key={tool.id}/>,'file-transfer':<FileTransferPage key={tool.id}/>,'time-converter':<TimeConverterPage key={tool.id}/>,'uuid-generator':<UuidGeneratorPage key={tool.id}/>}
    return pages[tool.target]
   }
   return <div className="p-10 muted">页面不存在或工具已删除。请从侧栏选择工具。</div>

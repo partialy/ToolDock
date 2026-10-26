@@ -83,3 +83,11 @@ npm run dist
 - 统一 DialogShell、DialogProvider / useDialog、ConfirmDialog、DangerDialog、FormDialog、WorkspaceDialog；ToolDock 内删除工具/分类、清理 Cookie、迁移数据、恢复备份入口与清空日志改用统一视觉。备份恢复保留主进程的最终系统级安全确认与回滚保护。
 - 二维码生成完全本地、不访问链接或网络服务，图片和内容不写入数据库或诊断日志。界面遵守现有深浅色、Normal/Reduced/Off 动画。
 - E2E 自动化可参考忽略于 Git 的 plans/e2e-qr-dialog.cjs；在隔离 APPDATA 内验证二维码扫码解码一致性和 Dialog 交互。
+
+## 文本 / JSON 差异对比（2026-10-26）
+
+- 新增独立「文本 / JSON 差异对比」内置工具，默认位于「开发工具」分类：CodeMirror 左右输入，逐行比对新增、删除、修改，并提供上一处、下一处差异及行号对齐的高亮结果。
+- JSON 对比默认忽略对象 Key 顺序（可关闭），先严格解析、规范化缩进；递归对象排序但不改变数组顺序，保留高精度数字原文，重复 Key 和不合法 JSON 直接报错。
+- 文件支持单侧导入、复制、交换和清空；对比结果使用 Worker 和虚拟列表。单侧最大 2 MiB / 10000 行；超多差异会保守合并为整段变化，避免冻结页面。
+- 输入与结果纯内存处理，不使用 IPC 和 SQLite 保存正文；SQLite v7 仅注册工具入口，不覆盖既有分类与用户修改。
+- 验收通过 npm run typecheck、npm test（89 测试）、npm run build 及隔离 APPDATA 的 Electron E2E 测试。设计与测试记录见 plans/TEXT_JSON_DIFF_IMPLEMENTATION.md。

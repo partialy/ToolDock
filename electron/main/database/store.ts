@@ -4,6 +4,7 @@ import { migrateImageDevtools } from './migrations/003-add-image-devtools'
 import { migrateImageEncoding } from './migrations/004-add-image-encoding'
 import { migrateQrCodeTool } from './migrations/005-add-qr-code-tool'
 import { migrateFileTransfer } from './migrations/006-add-file-transfer'
+import { migrateTextDiff } from './migrations/007-add-text-diff'
 import {TRANSFER_DEFAULTS} from '../../../src/shared/fileTransferModels'
 import { builtinById, builtinByTarget } from '../../../src/shared/builtinToolRegistry'
 import { app } from 'electron'
@@ -53,6 +54,7 @@ export function initStore() {
   migrateImageEncoding(db)
   migrateQrCodeTool(db)
   migrateFileTransfer(db)
+  migrateTextDiff(db)
 }
 export function closeStore() { if(db?.open) { db.pragma('wal_checkpoint(TRUNCATE)'); db.close() } }
 const asCategory=(r:Record<string,unknown>):Category=>({id:String(r.id),name:String(r.name),icon:String(r.icon),sortOrder:Number(r.sort_order),visible:Boolean(r.visible),isSystem:Boolean(r.is_system)})

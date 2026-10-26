@@ -58,7 +58,7 @@ describe('分类与 SQLite 持久化', () => {
 
 describe('SQLite v2 JSON 内置工具增量升级', () => {
  it('全新安装注册两个不可删除的内置工具',()=>{
-  expect(listTools().filter(x=>x.isBuiltin).map(x=>x.id).sort()).toEqual(['builtin-file-transfer','builtin-image-encoding','builtin-image-processor','builtin-json-tool','builtin-key-generator','builtin-logo-icon-generator','builtin-qr-code-tool','builtin-time-converter','builtin-uuid-generator'])
+  expect(listTools().filter(x=>x.isBuiltin).map(x=>x.id).sort()).toEqual(['builtin-file-transfer','builtin-image-encoding','builtin-image-processor','builtin-json-tool','builtin-key-generator','builtin-logo-icon-generator','builtin-qr-code-tool','builtin-text-diff','builtin-time-converter','builtin-uuid-generator'])
   expect(()=>removeTool('builtin-json-tool')).toThrow('内置工具')
  })
  it('模拟 v1 升级时保留重命名且隐藏的 developer 分类',()=>{
@@ -219,5 +219,37 @@ describe('SQLite v6 文件快传与通知设置',()=>{
   closeStore()
   expect(()=>initStore()).toThrow('文件快传内置 ID 存在冲突')
   expect(getDb().prepare('SELECT 1 FROM schema_migrations WHERE version=6').get()).toBeUndefined()
+ })
+})
+
+describe('SQLite v7 文本 / JSON 对比工具迁移',()=>{
+ const id='builtin-text-diff'
+ it('新安装注册独立内置工具，不能删除或伪造',()=>{
+  expect(listTools().find(x=>x.id===id)).toMatchObject({categoryId:'developer',target:'text-diff',isBuiltin:true})
+  expect(getDb().prepare('SELECT version FROM schema_migrations WHERE version=7').get()).toBeTruthy()
+  expect(()=>removeTool(id)).toThrow('内置工具')
+  expect(()=>saveTool({name:'假工具',categoryId:'default',type:'internal',target:'text-diff'})).toThrow()
+ })
+ it('删除 developer 分类后升级不复活旧分类',()=>{
+  removeCategory('developer')
+  getDb().prepare('DELETE FROM tools WHERE id=?').run(id)
+  getDb().prepare('DELETE FROM schema_migrations WHERE version=7').run()
+  closeStore();initStore()
+  expect(listCategories().some(x=>x.id==='developer')).toBe(false)
+  expect(listTools().find(x=>x.id===id)).toMatchObject({categoryId:'default'})
+ })
+ it('保留用户重命名、图标、归属分类及隐藏状态',()=>{
+  const old=listTools().find(x=>x.id===id)!
+  saveTool({...old,name:'我的对比工具',icon:'heart',categoryId:'default',visible:false})
+  closeStore();initStore()
+  expect(listTools().find(x=>x.id===id)).toMatchObject({name:'我的对比工具',icon:'heart',visible:false,categoryId:'default'})
+  expect(listTools().filter(x=>x.id===id)).toHaveLength(1)
+ })
+ it('遇到内置 ID 冲突时迁移回滚',()=>{
+  getDb().prepare('DELETE FROM schema_migrations WHERE version=7').run()
+  getDb().prepare("UPDATE tools SET target='malicious' WHERE id=?").run(id)
+  closeStore()
+  expect(()=>initStore()).toThrow('文本差异对比内置 ID 存在冲突')
+  expect(getDb().prepare('SELECT 1 FROM schema_migrations WHERE version=7').get()).toBeUndefined()
  })
 })
