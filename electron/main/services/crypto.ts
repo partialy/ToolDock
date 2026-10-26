@@ -55,15 +55,25 @@ export function generateRsa(bits:number,passphrase?:string):CryptoResult {
  const keys=generateKeyPairSync('rsa',{modulusLength:bits,publicExponent:65537,publicKeyEncoding:{type:'spki',format:'pem'},privateKeyEncoding:passphrase?{type:'pkcs8',format:'pem',cipher:'aes-256-cbc',passphrase}:{type:'pkcs8',format:'pem'}})
  return {publicKey:keys.publicKey,privateKey:keys.privateKey,info:'RSA-'+bits+' · PKCS#8 / SPKI PEM'}
 }
+export function generateEc(curve:'P-256'|'P-384',passphrase?:string):CryptoResult {
+ if(!['P-256','P-384'].includes(curve))throw Error('无效的 ECC 曲线')
+ if(passphrase&&passphrase.length<8)throw Error('私钥加密密码至少8位')
+ const keys=generateKeyPairSync('ec',{namedCurve:curve==='P-256'?'prime256v1':'secp384r1',publicKeyEncoding:{type:'spki',format:'pem'},privateKeyEncoding:passphrase?{type:'pkcs8',format:'pem',cipher:'aes-256-cbc',passphrase}:{type:'pkcs8',format:'pem'}})
+ return {publicKey:keys.publicKey,privateKey:keys.privateKey,info:'ECDSA '+curve+' · PKCS#8 / SPKI PEM'}
+}
 export function generateAes(bits:128|256):CryptoResult {
  if(bits!==128&&bits!==256)throw Error('AES 仅支持 128 或 256 位')
  const k=randomBytes(bits/8)
  return {secret:k.toString('hex'),info:'AES-'+bits+' 密钥 · Hex（'+(bits/8)+' 字节）'}
 }
-export function generateRandom(length:number,alphabet:string):CryptoResult {
+export function generateRandom(length:number,alphabet:string,requiredGroups:string[]=[]):CryptoResult {
  if(!Number.isInteger(length)||length<1||length>4096)throw Error('随机字符长度需要在1-4096之间')
  const chars=[...new Set([...alphabet])]
  if(chars.length<2||chars.length>256)throw Error('字符集需包含2-256个不同字符')
- let out='';for(let i=0;i<length;i++)out+=chars[randomInt(chars.length)]
- return {secret:out,info:'安全随机字符串 · '+length+' 字符'}
+ if(requiredGroups.length>4||requiredGroups.length>length)throw Error('长度不能小于必选字符类别数')
+ const out:string[]=[]
+ for(const g of requiredGroups){const available=[...new Set([...g])].filter(c=>chars.includes(c));if(!available.length)throw Error('必选字符类别为空');out.push(available[randomInt(available.length)])}
+ while(out.length<length)out.push(chars[randomInt(chars.length)])
+ for(let i=out.length-1;i>0;i--){const j=randomInt(i+1);[out[i],out[j]]=[out[j],out[i]]}
+ return {secret:out.join(''),info:'安全随机字符串 · '+length+' 字符 · 理论熵上限约 '+(length*Math.log2(chars.length)).toFixed(1)+' bit'}
 }

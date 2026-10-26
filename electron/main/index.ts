@@ -5,8 +5,9 @@ import { z } from 'zod'
 import { initStore, closeStore, listCategories, saveCategory, removeCategory, reorderCategories, listTools, saveTool, removeTool, reorderTools, getSettings, putSetting, getDataInfo } from './database/store'
 import { allowedUrl, openWebview, removeWebview, setWebBounds, hideWebview, showWebview, reloadWebview, clearWebData } from './views/webviews'
 import { initMarker, chooseDataFolder, migrateData, deleteOldData, openDataFolder, backupData, restoreData } from './services/data'
-import { generateRsa, generateSsh, generateAes, generateRandom } from './services/crypto'
+import { generateRsa, generateSsh, generateEc, generateAes, generateRandom } from './services/crypto'
 import { initLog, recordEvent, exportLogs, clearLogs } from './services/log'
+import {beginFileExport,appendExportChunk,finishFileExport,cancelFileExport,disposeAllExports} from './services/file-export'
 
 const devMode=!app.isPackaged
 app.setName(devMode?'ToolDock-Dev':'ToolDock')
@@ -61,10 +62,15 @@ function channels(){
  register('data:exportLogs',()=>exportLogs(win!))
  register('data:clearLogs',()=>clearLogs())
  register('data:restart',()=>{app.relaunch();app.quit()})
+ register('export:start',(a:unknown)=>{const v=z.object({name:z.string().min(1).max(128),format:z.enum(['zip','png','jpg','webp','gif','bmp','ico','txt'])}).parse(a);return beginFileExport(win!,v.name,v.format)})
+ register('export:chunk',(a:unknown)=>{const v=z.object({id:z.string().uuid(),bytes:z.instanceof(Uint8Array)}).parse(a);return appendExportChunk(v.id,v.bytes)})
+ register('export:finish',(a:unknown)=>finishFileExport(z.string().uuid().parse(a)))
+ register('export:cancel',(a:unknown)=>cancelFileExport(z.string().uuid().parse(a)))
  register('crypto:rsa',(a:unknown)=>{const x=z.object({bits:z.number().int(),passphrase:z.string().max(200).optional()}).parse(a);return generateRsa(x.bits,x.passphrase)})
  register('crypto:ssh',(a:unknown)=>{const x=z.object({kind:z.enum(['ed25519','rsa']),bits:z.number().int(),comment:z.string().max(100),passphrase:z.string().max(200).optional()}).parse(a);return generateSsh(x.kind,x.bits,x.comment,x.passphrase)})
+ register('crypto:ec',(a:unknown)=>{const x=z.object({curve:z.enum(['P-256','P-384']),passphrase:z.string().max(200).optional()}).parse(a);return generateEc(x.curve,x.passphrase)})
  register('crypto:aes',(a:unknown)=>generateAes(z.union([z.literal(128),z.literal(256)]).parse(a)))
- register('crypto:random',(a:unknown)=>{const x=z.object({length:z.number().int(),alphabet:z.string().min(2).max(2048)}).parse(a);return generateRandom(x.length,x.alphabet)})
+ register('crypto:random',(a:unknown)=>{const x=z.object({length:z.number().int(),alphabet:z.string().min(2).max(2048),groups:z.array(z.string().min(1).max(512)).max(4).optional()}).parse(a);return generateRandom(x.length,x.alphabet,x.groups||[])})
 }
 function createWindow(){
  let saved: {width?:number;height?:number;x?:number;y?:number;maximized?:boolean}={}
@@ -97,4 +103,4 @@ app.whenReady().then(()=>{
  catch(e){dialog.showErrorBox('ToolDock 初始化失败',e instanceof Error?e.stack||e.message:String(e));app.quit()}
 })
 app.on('window-all-closed',()=>app.quit())
-app.on('before-quit',()=>{if(!closing){closing=true;try{closeStore()}catch{}}})
+app.on('before-quit',()=>{if(!closing){closing=true;try{disposeAllExports();closeStore()}catch{}}})

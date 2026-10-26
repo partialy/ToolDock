@@ -26,13 +26,13 @@ afterEach(() => {
 
 describe('分类与 SQLite 持久化', () => {
   it('首次启动有预置工具，删除非空分类后迁移到默认分类且重启不复活', () => {
-    expect(listCategories().map(c => c.id)).toEqual(['default', 'developer'])
+    expect(listCategories().map(c => c.id)).toEqual(['default', 'developer', 'images'])
     expect(listTools().find(t => t.id === 'builtin-key-generator')?.categoryId).toBe('developer')
     removeCategory('developer')
     expect(listTools().find(t => t.id === 'builtin-key-generator')?.categoryId).toBe('default')
     closeStore()
     initStore()
-    expect(listCategories().map(c => c.id)).toEqual(['default'])
+    expect(listCategories().map(c => c.id)).toEqual(['default', 'images'])
     expect(listTools().find(t => t.id === 'builtin-key-generator')?.categoryId).toBe('default')
   })
   it('默认分类允许改名和隐藏，但禁止删除', () => {
@@ -58,7 +58,7 @@ describe('分类与 SQLite 持久化', () => {
 
 describe('SQLite v2 JSON 内置工具增量升级', () => {
  it('全新安装注册两个不可删除的内置工具',()=>{
-  expect(listTools().filter(x=>x.isBuiltin).map(x=>x.id).sort()).toEqual(['builtin-json-tool','builtin-key-generator'])
+  expect(listTools().filter(x=>x.isBuiltin).map(x=>x.id).sort()).toEqual(['builtin-image-encoding','builtin-image-processor','builtin-json-tool','builtin-key-generator','builtin-logo-icon-generator','builtin-time-converter','builtin-uuid-generator'])
   expect(()=>removeTool('builtin-json-tool')).toThrow('内置工具')
  })
  it('模拟 v1 升级时保留重命名且隐藏的 developer 分类',()=>{
@@ -74,7 +74,7 @@ describe('SQLite v2 JSON 内置工具增量升级', () => {
   getDb().prepare("DELETE FROM tools WHERE id='builtin-json-tool'").run()
   getDb().prepare('DELETE FROM schema_migrations WHERE version=2').run()
   closeStore();initStore()
-  expect(listCategories().map(x=>x.id)).toEqual(['default'])
+  expect(listCategories().map(x=>x.id)).toEqual(['default','images'])
   expect(listTools().find(x=>x.id==='builtin-json-tool')).toMatchObject({categoryId:'default',isBuiltin:true})
   closeStore();initStore()
   expect(listTools().filter(x=>x.id==='builtin-json-tool')).toHaveLength(1)
@@ -87,5 +87,73 @@ describe('SQLite v2 JSON 内置工具增量升级', () => {
   expect(listTools().find(x=>x.id==='builtin-json-tool')).toMatchObject({name:'我的 JSON',visible:false,icon:'file-text'})
   expect(()=>saveTool({...item,type:'internal',target:'untrusted'})).toThrow()
   expect(()=>saveTool({name:'伪内置',categoryId:'default',type:'internal',target:'json-tool'})).toThrow()
+ })
+})
+
+
+describe('SQLite v3 原生工具增量升级',()=>{
+ it('默认注册四个新工具并保护其身份',()=>{
+  const ids=['builtin-image-processor','builtin-logo-icon-generator','builtin-time-converter','builtin-uuid-generator']
+  for(const id of ids){expect(listTools().find(t=>t.id===id)?.isBuiltin).toBe(true);expect(()=>removeTool(id)).toThrow('内置工具')}
+  expect(listCategories().find(c=>c.id==='images')?.name).toBe('图片工具')
+  expect(getDb().prepare('SELECT version FROM schema_migrations WHERE version=3').get()).toBeTruthy()
+ })
+ it('用户删除图片分类后不复活，并保留自定义名称显隐',()=>{
+  const old=listTools().find(t=>t.id==='builtin-image-processor')!
+  saveTool({...old,name:'我自己的图像工具',visible:false,icon:'heart'})
+  removeCategory('images')
+  closeStore();initStore()
+  expect(listCategories().some(c=>c.id==='images')).toBe(false)
+  expect(listTools().find(t=>t.id==='builtin-image-processor')).toMatchObject({categoryId:'default',name:'我自己的图像工具',visible:false,icon:'heart'})
+ })
+ it('从 v2 数据升级到 v3 时仅增量补齐工具',()=>{
+  const ids=['builtin-image-processor','builtin-logo-icon-generator','builtin-time-converter','builtin-uuid-generator']
+  for(const id of ids)getDb().prepare('DELETE FROM tools WHERE id=?').run(id)
+  getDb().prepare("DELETE FROM tools WHERE id='builtin-image-encoding'").run()
+  getDb().prepare('DELETE FROM schema_migrations WHERE version=4').run()
+  getDb().prepare("DELETE FROM categories WHERE id='images'").run()
+  getDb().prepare('DELETE FROM schema_migrations WHERE version=3').run()
+  saveCategory({id:'developer',name:'已自定义开发工具',visible:false})
+  closeStore();initStore()
+  expect(listCategories().find(x=>x.id==='developer')).toMatchObject({name:'已自定义开发工具',visible:false})
+  expect(listTools().filter(t=>ids.includes(t.id))).toHaveLength(4)
+  closeStore();initStore()
+  expect(listTools().filter(t=>ids.includes(t.id))).toHaveLength(4)
+ })
+})
+
+
+describe('SQLite v4 图片编码工具增量升级',()=>{
+ const id='builtin-image-encoding'
+ it('注册新内置工具且不可删除',()=>{
+  expect(listTools().find(t=>t.id===id)).toMatchObject({categoryId:'images',target:'image-encoding',isBuiltin:true})
+  expect(()=>removeTool(id)).toThrow('内置工具')
+  expect(getDb().prepare('SELECT version FROM schema_migrations WHERE version=4').get()).toBeTruthy()
+ })
+ it('删除图片工具分类后升级只回退默认分类，不复活图片分类',()=>{
+  removeCategory('images')
+  getDb().prepare('DELETE FROM tools WHERE id=?').run(id)
+  getDb().prepare('DELETE FROM schema_migrations WHERE version=4').run()
+  closeStore();initStore()
+  expect(listCategories().some(c=>c.id==='images')).toBe(false)
+  expect(listTools().find(t=>t.id===id)).toMatchObject({categoryId:'default',isBuiltin:true})
+ })
+ it('重复启动保留用户自定义工具名/显隐/位置，不产生重复',()=>{
+  const existing=listTools().find(t=>t.id===id)!
+  saveTool({...existing,name:'自己的图片编码',visible:false,icon:'heart',categoryId:'default'})
+  closeStore();initStore()
+  expect(listTools().filter(t=>t.id===id)).toHaveLength(1)
+  expect(listTools().find(t=>t.id===id)).toMatchObject({name:'自己的图片编码',visible:false,icon:'heart',categoryId:'default'})
+ })
+ it('模拟 v3 升级，并验证内置 ID 冲突时迁移回滚',()=>{
+  getDb().prepare('DELETE FROM tools WHERE id=?').run(id)
+  getDb().prepare('DELETE FROM schema_migrations WHERE version=4').run()
+  closeStore();initStore()
+  expect(listTools().filter(t=>t.id===id)).toHaveLength(1)
+  getDb().prepare("UPDATE tools SET target='unsafe' WHERE id=?").run(id)
+  getDb().prepare('DELETE FROM schema_migrations WHERE version=4').run()
+  closeStore()
+  expect(()=>initStore()).toThrow('图片编码内置工具 ID 冲突')
+  expect(getDb().prepare('SELECT 1 FROM schema_migrations WHERE version=4').get()).toBeUndefined()
  })
 })

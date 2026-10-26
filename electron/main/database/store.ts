@@ -1,5 +1,7 @@
 import Database from './sqlite'
 import { migrateJsonTool } from './migrations/002-add-json-tool'
+import { migrateImageDevtools } from './migrations/003-add-image-devtools'
+import { migrateImageEncoding } from './migrations/004-add-image-encoding'
 import { builtinById, builtinByTarget } from '../../../src/shared/builtinToolRegistry'
 import { app } from 'electron'
 import fs from 'node:fs'
@@ -44,6 +46,8 @@ export function initStore() {
     db.prepare('INSERT OR IGNORE INTO schema_migrations VALUES (?,?)').run(1,new Date().toISOString())
   })()
   migrateJsonTool(db)
+  migrateImageDevtools(db)
+  migrateImageEncoding(db)
 }
 export function closeStore() { if(db?.open) { db.pragma('wal_checkpoint(TRUNCATE)'); db.close() } }
 const asCategory=(r:Record<string,unknown>):Category=>({id:String(r.id),name:String(r.name),icon:String(r.icon),sortOrder:Number(r.sort_order),visible:Boolean(r.visible),isSystem:Boolean(r.is_system)})

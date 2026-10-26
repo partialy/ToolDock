@@ -19,11 +19,18 @@ const api={
   backup:()=>invoke('data:backup'),restore:()=>invoke('data:restore'),restart:()=>invoke('data:restart'),
   exportLogs:()=>invoke('data:exportLogs'),clearLogs:()=>invoke('data:clearLogs')
  },
+ export:{
+  start:(name:string,format:string)=>invoke('export:start',{name,format}),
+  chunk:(id:string,bytes:Uint8Array)=>invoke('export:chunk',{id,bytes}),
+  finish:(id:string)=>invoke('export:finish',id),
+  cancel:(id:string)=>invoke('export:cancel',id)
+ },
  crypto:{
   rsa:(bits:number,passphrase?:string)=>invoke('crypto:rsa',{bits,passphrase}),
   ssh:(kind:'ed25519'|'rsa',bits:number,comment:string,passphrase?:string)=>invoke('crypto:ssh',{kind,bits,comment,passphrase}),
+  ec:(curve:'P-256'|'P-384',passphrase?:string)=>invoke('crypto:ec',{curve,passphrase}),
   aes:(bits:number)=>invoke('crypto:aes',bits),
-  random:(length:number,alphabet:string)=>invoke('crypto:random',{length,alphabet})
+  random:(length:number,alphabet:string,groups?:string[])=>invoke('crypto:random',{length,alphabet,groups})
  }
 }
 contextBridge.exposeInMainWorld('toolDock',api)

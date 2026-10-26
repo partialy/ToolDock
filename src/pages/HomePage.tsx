@@ -1,19 +1,24 @@
-import { motion } from 'motion/react'
-import { ArrowUpRight, Blocks, Globe, KeyRound, Plus, Sparkles, Braces } from 'lucide-react'
-import { Icon } from '@/components/ui/icon'
-import { Button } from '@/components/ui/button'
+import {useMemo,useState} from 'react'
+import {ArrowUpRight,Blocks,Search,Plus} from 'lucide-react'
+import {Icon} from '@/components/ui/icon'
+import {Input} from '@/components/ui/input'
 import type {Workspace} from '@/store/useWorkspace'
 export function HomePage({ws,onGo,onAdd}:{ws:Workspace;onGo:(v:string)=>void;onAdd:()=>void}){
- const recent=ws.tools.slice(0,9)
- return <div className="mx-auto max-w-5xl space-y-8 p-8">
-  <div className="pt-8"><div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-500/15 text-indigo-400"><Blocks size={24}/></div><h1 className="text-3xl font-semibold tracking-tight">你的工具工作台</h1><p className="mt-3 text-sm muted">把常用工具放在一起，轻松切换，让每件小事都更简单。</p></div>
-  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-   {ws.tools.some(t=>t.id==='builtin-key-generator'&&t.visible&&ws.categories.some(c=>c.id===t.categoryId&&c.visible))&&<button onClick={()=>onGo('tool:builtin-key-generator')} className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5 text-left transition-all hover:-translate-y-0.5 hover:border-indigo-400/50 hover:shadow-lg"><KeyRound className="mb-4 text-indigo-400"/><div className="font-semibold">密钥生成器</div><div className="mt-1 text-xs muted">RSA / SSH / AES / 随机字符串 / Base64</div><ArrowUpRight className="mt-4 text-[var(--muted)]" size={16}/></button>}
-   {ws.tools.some(t=>t.id==='builtin-json-tool'&&t.visible&&ws.categories.some(c=>c.id===t.categoryId&&c.visible))&&<button onClick={()=>onGo('tool:builtin-json-tool')} className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5 text-left transition-all hover:-translate-y-0.5 hover:border-indigo-400/50 hover:shadow-lg"><Braces className="mb-4 text-indigo-400"/><div className="font-semibold">JSON 处理</div><div className="mt-1 text-xs muted">无损格式化、校验、排序与树形查看</div><ArrowUpRight className="mt-4 text-[var(--muted)]" size={16}/></button>}
-   <button onClick={onAdd} className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--panel)] p-5 text-left transition-all hover:-translate-y-0.5 hover:border-indigo-400/50"><Plus className="mb-4 text-indigo-400"/><div className="font-semibold">添加网页工具</div><div className="mt-1 text-xs muted">把常访问的网站固定到侧栏</div><ArrowUpRight className="mt-4 text-[var(--muted)]" size={16}/></button>
-  </div>
-  <section><h2 className="mb-4 flex items-center gap-2 text-sm font-semibold"><Sparkles size={16}/> 全部工具 <span className="muted">({ws.tools.length})</span></h2>
-   <div className="grid grid-cols-2 gap-3 md:grid-cols-3">{recent.map((t,i)=><motion.button key={t.id} initial={{opacity:0,y:6}} animate={{opacity:1,y:0}} transition={{delay:ws.settings.motion==='off'?0:i*.03}} onClick={()=>onGo('tool:'+t.id)} className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4 text-left hover:bg-[var(--hover)]"><div className="rounded-lg bg-[var(--panel-alt)] p-2"><Icon name={t.icon}/></div><span className="min-w-0 flex-1 truncate font-medium">{t.name}</span><ArrowUpRight size={14} className="muted"/></motion.button>)}</div>
-  </section>
+ const [query,setQuery]=useState('')
+ const categories=useMemo(()=>ws.categories.filter(c=>c.visible).sort((a,b)=>a.sortOrder-b.sortOrder),[ws.categories])
+ const tools=useMemo(()=>ws.tools.filter(t=>t.visible&&categories.some(c=>c.id===t.categoryId)).filter(t=>!query||t.name.toLowerCase().includes(query.trim().toLowerCase())),[ws.tools,categories,query])
+ const featured=tools.filter(t=>t.isBuiltin).slice(0,4)
+ const tile=(t:(typeof tools)[number])=><button key={t.id} onClick={()=>onGo('tool:'+t.id)} className="group flex min-w-0 items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4 text-left transition-colors hover:border-[var(--primary)]/30 hover:bg-[var(--hover)]">
+  <span className="rounded-lg bg-[var(--panel-alt)] p-2 text-indigo-400"><Icon name={t.icon} size={19}/></span>
+  <span className="min-w-0 flex-1 truncate text-sm font-medium">{t.name}</span><ArrowUpRight size={15} className="shrink-0 muted"/>
+ </button>
+ return <div className="@container mx-auto max-w-[1350px] space-y-7 p-6">
+  <header className="flex flex-wrap items-center gap-4"><div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-500/15"><Blocks size={24} className="text-indigo-400"/></div><div className="min-w-0 flex-1"><h1 className="text-2xl font-semibold">ToolDock 工作台</h1><p className="mt-1 text-xs muted">集中使用你的开发和图片工具</p></div>
+   <div className="relative w-full max-w-72"><Search size={16} className="absolute left-3 top-2.5 muted"/><Input aria-label="搜索工具" value={query} onChange={e=>setQuery(e.target.value)} placeholder="搜索工具..." className="pl-10"/></div>
+  </header>
+  {!!featured.length&&<section className="space-y-3"><h2 className="text-sm font-semibold">快捷入口</h2><div className="grid gap-3 @min-[650px]:grid-cols-2 @min-[1050px]:grid-cols-4">{featured.map(tile)}</div></section>}
+  {categories.map(c=>{const list=tools.filter(t=>t.categoryId===c.id).sort((a,b)=>a.sortOrder-b.sortOrder);return list.length?<section key={c.id} className="space-y-3"><h2 className="flex items-center gap-2 text-sm font-semibold"><Icon name={c.icon} size={17}/>{c.name}<span className="text-xs font-normal muted">{list.length}</span></h2><div className="grid gap-3 @min-[650px]:grid-cols-2 @min-[1050px]:grid-cols-3">{list.map(tile)}</div></section>:null})}
+  {!tools.length&&<p className="py-16 text-center text-sm muted">没有匹配的工具</p>}
+  <button onClick={onAdd} className="flex items-center gap-2 rounded-xl border border-dashed border-[var(--border)] p-3 text-xs muted hover:bg-[var(--hover)]"><Plus size={15}/> 添加网页工具</button>
  </div>
 }
