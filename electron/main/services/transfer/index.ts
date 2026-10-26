@@ -230,7 +230,7 @@ export class FileTransferService extends EventEmitter {
   }
   if(method==='GET'&&pathname==='/api/zip'){
    if(!this.prefs.allowDownload)return sendJson(res,403,{error:'未开启下载权限'})
-   return this.downloadZip(res,device)
+   return this.downloadZip(res,device,url.searchParams.getAll('id'))
   }
   if(method==='POST'&&pathname==='/api/uploads'){
    if(!this.prefs.allowUpload||!this.prefs.receiveDirectory)return sendJson(res,403,{error:'电脑未开启接收权限'})
@@ -330,9 +330,12 @@ export class FileTransferService extends EventEmitter {
   }catch{const t=this.tasks.get(id);if(t)t.status='failed';res.destroy()}
   finally{this.activeDownloads--;this.activeResponses.delete(id);this.downloadOwners.delete(id);this.downloadShares.delete(id);this.emitChange()}
  }
- private async downloadZip(res:ServerResponse,device:DeviceInfo){
+ private async downloadZip(res:ServerResponse,device:DeviceInfo,selectedIds:string[]=[]){
   if(this.activeDownloads>=this.prefs.maxDownloads)return sendJson(res,429,{error:'下载队列繁忙'})
-  const shares=await Promise.all([...this.shares.keys()].map(id=>this.readShare(id)))
+  if(selectedIds.length>500||selectedIds.some(id=>!/^[0-9a-f-]{36}$/.test(id)))return sendJson(res,400,{error:'所选文件列表无效'})
+  const ids=selectedIds.length?[...new Set(selectedIds)]:[...this.shares.keys()]
+  if(ids.some(id=>!this.shares.has(id)))return sendJson(res,404,{error:'部分共享文件已不存在'})
+  const shares=await Promise.all(ids.map(id=>this.readShare(id)))
   if(!shares.length)return sendJson(res,400,{error:'当前没有共享文件'})
   this.activeDownloads++
   const archive=new yazl.ZipFile(),names=new Set<string>()

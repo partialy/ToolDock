@@ -1,12 +1,26 @@
 import './style.css'
 import {sha256} from '@noble/hashes/sha2.js'
 import {bytesToHex} from '@noble/hashes/utils.js'
-type Share={id:string;name:string;size:number;status:string}
+
+type Share={id:string;name:string;size:number;status:'ready'|'changed'|'missing'}
 type Up={id:string;name:string;size:number;received:number;status:string}
+type Selection={key:string;file:File}
+type TransferJob={id:string;offset:number;file:File;row:HTMLElement;button:HTMLButtonElement;paused:boolean;cancelled:boolean;running:boolean;finished:boolean}
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T
-const human=(n:number)=>n>1024**3?(n/1024**3).toFixed(2)+' GiB':n>1024**2?(n/1024**2).toFixed(1)+' MiB':(n/1024).toFixed(1)+' KiB'
-const pending=new Map<string,File>()
-const err=(s:string)=>{$('error').textContent=s}
+const human=(n:number)=>n>=1024**3?(n/1024**3).toFixed(2)+' GiB':n>=1024**2?(n/1024**2).toFixed(1)+' MiB':n>=1024?(n/1024).toFixed(1)+' KiB':n+' B'
+const icon=(name:'file'|'download'|'upload'|'close'|'plus'|'check')=>{
+ const s=document.createElementNS('http://www.w3.org/2000/svg','svg')
+ const use=document.createElementNS('http://www.w3.org/2000/svg','use')
+ use.setAttribute('href','#i-'+name);s.append(use);return s
+}
+const selected=new Map<string,Selection>()
+const selectedDownload=new Set<string>()
+const jobs=new Map<string,TransferJob>()
+const queued:TransferJob[]=[]
+let visibleShares:Share[]=[],nextKey=0,active=0,uploadEnabled=false
+const err=(s:string)=>{$('error').textContent=s;$('error').hidden=!s}
+const label=(status:string)=>({uploading:'上传中',paused:'已暂停',pending:'等待电脑确认',accepted:'电脑已接收',rejected:'电脑已拒绝',failed:'失败',cancelled:'已取消'} as Record<string,string>)[status]||status
+
 async function json(url:string,options:RequestInit={}):Promise<any>{
  const response=await fetch(url,{credentials:'same-origin',...options,headers:{'X-ToolDock-Request':'1',...(options.body?{'Content-Type':'application/json'}:{}),...options.headers}})
  const value=await response.json()
@@ -14,6 +28,102 @@ async function json(url:string,options:RequestInit={}):Promise<any>{
  return value
 }
 const post=(url:string,value:unknown)=>json(url,{method:'POST',body:JSON.stringify(value)})
+const rowIcon=(filename:string)=>{
+ const wrap=document.createElement('div')
+ const dot=filename.lastIndexOf('.')
+ const ext=dot>0?filename.slice(dot+1).toLowerCase():''
+ wrap.className='file-icon '+(ext==='pdf'?'pdf':/^(zip|rar|7z|tar|gz|apk|exe)$/.test(ext)?'archive':/^(jpg|jpeg|png|webp|gif|svg|heic)$/.test(ext)?'image':/^(mp4|mkv|mov|avi)$/.test(ext)?'video':'')
+ const extension=document.createElement('span');extension.className='file-extension';extension.textContent=ext?ext.toUpperCase():'FILE'
+ wrap.title=ext?ext.toUpperCase()+' 文件':'文件';wrap.setAttribute('aria-hidden','true')
+ wrap.append(extension);return wrap
+}
+const fileDetails=(name:string,meta:string)=>{
+ const info=document.createElement('div'),title=document.createElement('div'),subtitle=document.createElement('div')
+ info.className='file-details'
+ title.className='name';title.textContent=name
+ subtitle.className='meta';subtitle.textContent=meta
+ info.append(title,subtitle)
+ return {info,subtitle}
+}
+const button=(text:string,mode='normal')=>{
+ const b=document.createElement('button');b.type='button';b.className='mini-button'+(mode==='remove'?' remove':'');b.setAttribute('aria-label',text);b.title=text
+ return b
+}
+function currentPanel(mode:'download'|'upload'){
+ const uploading=mode==='upload'
+ $('panel-download').hidden=uploading;$('panel-upload').hidden=!uploading
+ $('tab-download').classList.toggle('active',!uploading);$('tab-upload').classList.toggle('active',uploading)
+ $('tab-download').setAttribute('aria-selected',String(!uploading));$('tab-upload').setAttribute('aria-selected',String(uploading))
+}
+ function renderDownloadSelection(){
+ const matches=visibleShares.filter(s=>selectedDownload.has(s.id)&&s.status==='ready')
+ $('selection-summary').textContent=matches.length?'已选 '+matches.length+' 个 · '+human(matches.reduce((n,s)=>n+s.size,0)):'尚未选择文件'
+ $('select-all').textContent=matches.length===visibleShares.filter(s=>s.status==='ready').length&&matches.length?'取消全选':'全选文件'
+ const selectedLink=$<HTMLAnchorElement>('download-selected')
+ if(matches.length)selectedLink.href=matches.length===1?'/api/files/'+encodeURIComponent(matches[0].id):'/api/zip?'+new URLSearchParams(matches.map(s=>['id',s.id])).toString()
+ else selectedLink.removeAttribute('href')
+ selectedLink.setAttribute('aria-disabled',String(!matches.length))
+ selectedLink.tabIndex=matches.length?0:-1
+ selectedLink.querySelector('span')!.textContent=matches.length?'下载所选 ('+matches.length+')':'下载所选文件'
+ $('download-selection').hidden=!matches.length
+ $('selected-download-count').textContent=matches.length+' 个'
+ const list=$('download-selected-list');list.replaceChildren()
+ for(const f of matches){
+  const chip=document.createElement('span');chip.className='chip'
+  const name=document.createElement('span');name.textContent=f.name
+  const remove=button('移除所选 '+f.name);remove.className='';remove.append(icon('close'))
+  remove.onclick=()=>{selectedDownload.delete(f.id);renderShares()}
+  chip.append(name,remove);list.append(chip)
+ }
+}
+function renderShares(){
+ const container=$('shares');container.replaceChildren()
+ $('share-count').textContent=String(visibleShares.length)
+ $('download-all').hidden=!visibleShares.length
+ if(!visibleShares.length){
+  const empty=document.createElement('div');empty.className='empty'
+  const graphic=document.createElement('div');graphic.className='empty-illustration';graphic.append(icon('file'))
+  empty.append(graphic,Object.assign(document.createElement('span'),{textContent:'电脑暂未分享文件'}));container.append(empty)
+ }
+ for(const file of visibleShares){
+  const row=document.createElement('div');row.className='entry'
+  const chosen=selectedDownload.has(file.id)
+  const select=button((chosen?'取消选择 ':'选择 ')+file.name)
+  select.className='checkmark'+(chosen?' selected':'')
+  select.append(icon('check'));select.disabled=file.status!=='ready'
+  select.setAttribute('aria-pressed',String(chosen))
+  select.onclick=()=>{if(chosen)selectedDownload.delete(file.id);else selectedDownload.add(file.id);renderShares()}
+  const link=document.createElement('a');link.className='download-button';link.href='/api/files/'+encodeURIComponent(file.id);link.download=file.name
+  link.append(icon('download'));link.title='下载 '+file.name
+  link.setAttribute('aria-label','下载 '+file.name)
+  if(file.status!=='ready'){link.removeAttribute('href');link.setAttribute('aria-disabled','true')}
+  const {info}=fileDetails(file.name,human(file.size)+(file.status==='ready'?'':' · 文件不可用'))
+  row.append(select,rowIcon(file.name),info,link);container.append(row)
+ }
+ renderDownloadSelection()
+}
+function renderSelectedUploads(){
+ const root=$('selected-upload-list');root.replaceChildren()
+ const values=[...selected.values()]
+ $('upload-selection').hidden=!values.length
+ $('selected-upload-count').textContent=String(values.length)
+ $('upload-total').textContent='合计 '+human(values.reduce((n,v)=>n+v.file.size,0))
+ $('upload').toggleAttribute('disabled',!uploadEnabled||!values.length)
+ for(const {key,file} of values){
+  const row=document.createElement('div');row.className='entry'
+  const {info}=fileDetails(file.name,human(file.size)+' · 待发送')
+  const remove=button('移除 '+file.name,'remove');remove.append(icon('close'))
+  remove.onclick=()=>{selected.delete(key);renderSelectedUploads()}
+  row.append(rowIcon(file.name),info,remove);root.append(row)
+ }
+}
+function addFiles(files:File[]){
+ for(const file of files){
+  const exists=[...selected.values()].some(item=>item.file.name===file.name&&item.file.size===file.size&&item.file.lastModified===file.lastModified)
+  if(!exists)selected.set(String(++nextKey),{key:String(nextKey),file})
+ }
+ renderSelectedUploads();if(files.length)err('')
+}
 async function login(kind:'pin'|'token',value:string){
  await post('/api/auth',{kind,value})
  history.replaceState(null,'',location.pathname)
@@ -22,80 +132,115 @@ async function login(kind:'pin'|'token',value:string){
 }
 async function refresh(){
  const status=await json('/api/status')
- const shares=$('shares');shares.replaceChildren()
- const list=status.shares as Share[]
- $('download-all').hidden=!status.downloadAllowed||!list.length
- if(!list.length)shares.textContent='电脑暂未分享文件'
- for(const s of list){
-  const row=document.createElement('div');row.className='entry'
-  const meta=document.createElement('div'),title=document.createElement('div'),size=document.createElement('div')
-  title.className='name';title.textContent=s.name
-  size.className='meta';size.textContent=human(s.size)+(s.status!=='ready'?' · 文件已变化':'')
-  meta.append(title,size)
-  const a=document.createElement('a');a.href='/api/files/'+encodeURIComponent(s.id);a.textContent='下载';a.download=s.name
-  row.append(meta,a);shares.append(row)
- }
- const permitted=Boolean(status.uploadAllowed)
- $('choose').toggleAttribute('disabled',!permitted)
- $('upload').toggleAttribute('disabled',!permitted)
- if(!permitted)$('uploads').textContent='电脑暂未开放上传权限'
+ visibleShares=status.downloadAllowed?status.shares as Share[]:[]
+ for(const id of selectedDownload)if(!visibleShares.some(s=>s.id===id&&s.status==='ready'))selectedDownload.delete(id)
+ renderShares()
+ uploadEnabled=Boolean(status.uploadAllowed)
+ $('choose').toggleAttribute('disabled',!uploadEnabled)
+ $('pick-files').toggleAttribute('disabled',!uploadEnabled)
+ $('upload-hint').textContent=uploadEnabled?'传输完成后，仍需要电脑端确认接收':'电脑暂未开启文件接收，请在电脑端选择保存目录并开启上传'
+ renderSelectedUploads()
  await syncUploads()
 }
 async function syncUploads(){
- const body=await json('/api/uploads')
- for(const u of body.uploads as Up[]){
-  const el=document.querySelector<HTMLElement>('[data-upload-id="'+u.id+'"]')
-  if(el){
-   const progress=el.querySelector('progress')
-   if(progress){progress.max=u.size;progress.value=u.received}
-   const status=el.querySelector<HTMLElement>('.meta')
-   if(status)status.textContent=human(u.received)+' / '+human(u.size)+' · '+label(u.status)
+ const {uploads}=await json('/api/uploads') as {uploads:Up[]}
+ for(const u of uploads){
+  const el=jobs.get(u.id)?.row
+  if(!el)continue
+  const progress=el.querySelector('progress')
+  if(progress){progress.max=u.size;progress.value=u.received}
+  const status=el.querySelector<HTMLElement>('.meta')
+  if(status){
+   const suffix=u.status==='pending'?'文件上传完成，等待电脑点击确认接收':label(u.status)
+   status.textContent=human(u.received)+' / '+human(u.size)+' · '+suffix
   }
  }
 }
-const label=(status:string)=>({uploading:'上传中',paused:'已暂停',pending:'等待电脑确认',accepted:'电脑已接收',rejected:'电脑已拒绝',failed:'失败'} as Record<string,string>)[status]||status
-async function upload(file:File){
- let id='',offset=0
- const row=document.createElement('div');row.className='entry'
- const info=document.createElement('div'),title=document.createElement('div'),meta=document.createElement('div'),bar=document.createElement('progress')
- info.append(title,meta,bar);title.textContent=file.name;title.className='name';meta.className='meta'
- bar.max=file.size;bar.value=0
- const button=document.createElement('button');button.className='secondary';button.textContent='暂停'
- const cancel=document.createElement('button');cancel.className='secondary';cancel.textContent='取消'
- const actions=document.createElement('div');actions.append(button,cancel)
- row.append(info,actions);$('uploads').prepend(row)
- let paused=false,cancelled=false
- button.onclick=()=>{paused=!paused;button.textContent=paused?'继续':'暂停';if(!paused)void process()}
- const process=async()=>{
-  if(!id){const created=await post('/api/uploads',{name:file.name,size:file.size});id=created.id;row.dataset.uploadId=id;pending.set(id,file)}
-  try{
-   while(offset<file.size&&!paused&&!cancelled){
-    const bytes=new Uint8Array(await file.slice(offset,Math.min(offset+4*1024**2,file.size)).arrayBuffer())
-    const digest=bytesToHex(sha256(bytes))
-    const res=await fetch('/api/uploads/'+id+'?offset='+offset,{method:'PUT',headers:{'X-ToolDock-Request':'1','X-Chunk-SHA256':digest,'Content-Type':'application/octet-stream'},body:bytes as BodyInit})
-    const body=await res.json()
-    if(!res.ok){
-     const actual=await json('/api/uploads/'+id)
-     if(actual.offset!==undefined&&actual.offset!==offset){offset=actual.offset;continue}
-     throw Error(body.error||'上传分片失败')
-    }
-    offset=body.offset;bar.value=offset;meta.textContent=human(offset)+' / '+human(file.size)+' · 上传中'
-   }
-   if(offset===file.size&&!cancelled){
-    await post('/api/uploads/'+id+'/complete',{})
-    meta.textContent='文件上传完成，等待电脑点击确认接收';button.textContent='完成';button.disabled=true;pending.delete(id)
-   }
-  }catch(e){err('上传 '+file.name+' 失败：'+String(e));meta.textContent='发送暂停，可稍后继续';paused=true;button.textContent='继续'}
+function runQueue(){
+ while(active<2&&queued.length){
+  const job=queued.shift()!
+  if(job.cancelled)continue
+  active++
+  void upload(job).finally(()=>{active--;runQueue()})
  }
- cancel.onclick=()=>{cancelled=true;paused=true;if(id)void json('/api/uploads/'+id,{method:'DELETE'}).catch(e=>err(String(e)));pending.delete(id);row.remove()}
- await process()
 }
+function enqueue(files:File[]){
+ for(const file of files){
+  const row=document.createElement('div');row.className='entry'
+  const {info,subtitle}=fileDetails(file.name,'等待发送 · '+human(file.size))
+  const progress=document.createElement('progress');progress.max=file.size;progress.value=0;info.append(progress)
+  const pause=button('暂停 '+file.name);pause.textContent='暂停'
+  const cancel=button('取消 '+file.name,'remove');cancel.append(icon('close'))
+  const actions=document.createElement('div');actions.className='actions';actions.append(pause,cancel)
+  row.append(rowIcon(file.name),info,actions);$('uploads').prepend(row)
+  const job:TransferJob={id:'',offset:0,file,row,button:pause,paused:false,cancelled:false,running:false,finished:false}
+  pause.onclick=()=>{if(job.finished||job.cancelled)return;job.paused=!job.paused;pause.textContent=job.paused?'继续':'暂停';if(!job.paused&&!job.running){queued.push(job);runQueue()}}
+  cancel.onclick=()=>{job.cancelled=true;job.paused=true;row.remove();if(!job.running&&job.id)void json('/api/uploads/'+job.id,{method:'DELETE'}).catch(e=>err(String(e)))}
+  queued.push(job);subtitle.textContent='已加入发送队列 · '+human(file.size)
+ }
+ runQueue()
+}
+async function upload(job:TransferJob){
+ if(job.running||job.finished||job.cancelled)return
+ job.running=true
+ const {file,row,button:pause}=job
+ const meta=row.querySelector<HTMLElement>('.meta')!
+ const bar=row.querySelector('progress')!
+ try{
+  if(!job.id){
+   const created=await post('/api/uploads',{name:file.name,size:file.size})
+   job.id=created.id;jobs.set(job.id,job)
+   row.dataset.uploadId=job.id
+  }else{
+   const state=await json('/api/uploads/'+job.id)
+   job.offset=state.offset
+  }
+  while(job.offset<file.size&&!job.paused&&!job.cancelled){
+   const bytes=new Uint8Array(await file.slice(job.offset,Math.min(job.offset+4*1024**2,file.size)).arrayBuffer())
+   const digest=bytesToHex(sha256(bytes))
+   const res=await fetch('/api/uploads/'+job.id+'?offset='+job.offset,{method:'PUT',headers:{'X-ToolDock-Request':'1','X-Chunk-SHA256':digest,'Content-Type':'application/octet-stream'},body:bytes as BodyInit})
+   const result=await res.json()
+   if(!res.ok){
+    const actual=await json('/api/uploads/'+job.id)
+    if(actual.offset!==undefined&&actual.offset!==job.offset){job.offset=actual.offset;continue}
+    throw Error(result.error||'上传分片失败')
+   }
+   job.offset=result.offset;bar.value=job.offset
+   meta.textContent=human(job.offset)+' / '+human(file.size)+' · 上传中'
+  }
+  if(job.offset===file.size&&!job.cancelled){
+   await post('/api/uploads/'+job.id+'/complete',{})
+   job.finished=true;meta.textContent='文件上传完成，等待电脑点击确认接收'
+   pause.disabled=true;pause.textContent='等待确认'
+  }else if(!job.cancelled)meta.textContent=human(job.offset)+' / '+human(file.size)+' · 已暂停'
+ }catch(e){
+  if(!job.cancelled){job.paused=true;pause.textContent='继续';meta.textContent='发送中断，可点击继续';err('发送 '+file.name+' 失败：'+String(e))}
+ }finally{
+  job.running=false
+  if(job.cancelled&&job.id)await json('/api/uploads/'+job.id,{method:'DELETE'}).catch(()=>{})
+ }
+}
+$('tab-download').addEventListener('click',()=>currentPanel('download'))
+$('tab-upload').addEventListener('click',()=>currentPanel('upload'))
 $('login-form').addEventListener('submit',e=>{e.preventDefault();void login('pin',($<HTMLInputElement>('pin')).value).catch(e=>err(String(e)))})
 $('refresh').addEventListener('click',()=>void refresh().catch(e=>err(String(e))))
-$('upload').addEventListener('click',()=>{
+$('select-all').addEventListener('click',()=>{
+ const files=visibleShares.filter(s=>s.status==='ready')
+ const all=files.length>0&&files.every(s=>selectedDownload.has(s.id))
+ selectedDownload.clear();if(!all)for(const item of files)selectedDownload.add(item.id)
+ renderShares()
+})
+ $('pick-files').addEventListener('click',()=>{if(uploadEnabled)$<HTMLInputElement>('choose').click()})
+$('choose').addEventListener('change',()=>{
  const input=$<HTMLInputElement>('choose')
- for(const file of [...(input.files||[])])void upload(file)
+ addFiles([...(input.files||[])])
  input.value=''
+})
+$('clear-selected').addEventListener('click',()=>{selected.clear();renderSelectedUploads()})
+$('upload').addEventListener('click',()=>{
+ const files=[...selected.values()].map(x=>x.file)
+ if(!files.length||!uploadEnabled)return
+ selected.clear();renderSelectedUploads();enqueue(files)
 })
 const fragment=new URLSearchParams(location.hash.slice(1)).get('token')
 if(fragment)void login('token',fragment).catch(e=>{err(String(e));history.replaceState(null,'',location.pathname)})
