@@ -52,3 +52,24 @@ npm run dist
 - JSON 格式化/排序使用 AST 与原始 token 切片，**不通过 JSON.parse → JSON.stringify 重新序列化**，以保留超大整数、高精度小数和原始字符串字面量；重复 Key 阻止可能误导的变换。
 - SQLite v2 迁移仅增量添加 JSON 工具，不重置旧版用户已修改的分类、工具属性和设置。系统内置工具都允许隐藏、改名、移动、排序，但不可删除。
 - 测试：`npm run typecheck` / `npm test` / `npm run build`。具体执行与验收见被 Git 忽略的 `plans/BASE64_JSON_IMPLEMENTATION.md`。
+
+## 图片工具与 DevTools Lite 整合（2026-10-26）
+
+- 新增「图片工具」分类：图片处理（JPEG/PNG/WebP 上传、缩放、压缩、格式转换、交互式裁剪、原图/结果预览、批量处理与 ZIP 导出）；Logo / ICO 生成（SVG/PNG/JPEG/WebP 输入、9 种尺寸、PNG/JPEG/WebP、标准多帧 ICO）。
+- 新增「时间转换」与「UUID 生成」工具。时间转换支持自动判定 10/13 位 Unix 时间戳、显式秒/毫秒、UTC/local/ISO、自定义日期日历及 24 小时时分秒选择面板。UUID 支持批量生成、格式选项、复制和 TXT 下载。
+- 密钥生成器原有 SSH、RSA、AES、Base64 不改变；新增 ECDSA P-256/P-384，以及随机串自定义字符、快捷长度和每字符类别至少出现一次。
+- 自定义选择器统一使用 ToolDock 现有主题变量、Radix 浮层、圆角、边框和键盘焦点设计，不使用浏览器原生日期时间弹出面板。
+- 图片在本地处理：优先通过独立 Image Worker 执行缩放/编码；SVG 仅在安全校验后本地栅格化；ICO 使用 PNG 帧封装；导出经受限 IPC 在系统保存对话框指定位置流式落盘（ZIP 使用 fflate）。
+- 单张文件 50 MiB、每批 100 张/300 MiB、解码不超过 4000 万像素、输出单边不超过 8192px 且最多 4000 万像素；结果暂存在页面内存中，参数变化后必须重新生成；未导出时切换页面有确认提示。
+- SQLite v3 仅增量注册四个新工具、图片分类，不覆盖现有自定义配置；删除图片分类后重启不会复活。
+- 自动化验证：npm run typecheck、npm test、npm run build。项目忽略的 plans/e2e-image-devtools.cjs 提供隔离 APPDATA 的 Electron 端到端脚本，测试图片 Worker、SVG/ICO、文件保存和导航守卫。
+- 完整产品约束与开发验收记录见被 Git 忽略的 plans/IMAGE_DEVTOOLS_INTEGRATION.md。
+
+## 图片编码与日期时间动效（2026-10-26）
+
+- 图片工具新增「图片编码」：单张图片与 Base64/Data URL 双向转换，PNG、JPEG、WebP、GIF、BMP、ICO 六种图片格式。原字节无损保留，不使用 Canvas 重压缩；GIF 动画保持原始内容。
+- 上传图片至多 20 MiB，粘贴编码至多 30 MiB；二进制转换在独立 Worker 中运行。默认输出 Data URL，同时可选纯 Base64。编码预览显示前 2000 字符，完整内容可复制或使用原生保存对话框导出 TXT。
+- 解码时严格核验 Base64 长度、填充、尾部有效位和图片真实格式；Data URL 的 MIME 必须符合实际文件内容。
+- 自定义日期、时间选择器加入统一 Motion 动画、按方向切换月份、时间选项平滑滚动，遵循 Normal / Reduced / Off 和系统减少动画选项。
+- 新内置工具由 SQLite v4 增量迁移注册，保留用户已有的分类、名称、显隐和排序；不会恢复此前删除的分类。
+- 本功能完全离线，图片/编码不入 SQLite 或诊断日志。本轮不提供二维码功能。

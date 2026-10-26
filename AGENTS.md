@@ -19,3 +19,11 @@
 - JSON 无损转换位于 src/lib/json，禁止直接通过 JSON.parse -> JSON.stringify 处理待格式化/排序的原文，以免数值精度和重复键丢失。
 - 大 JSON 在 src/workers/json.worker.ts 解析，React UI 不做同步重量级 AST 遍历；超出限制时显示错误，保留源数据，不执行危险操作。
 - 编辑器使用 src/components/json/JsonEditor.tsx，新增下拉菜单继续复用 SelectField；动效遵循 reduced/off 设置，保持 Header h-[48px] px-1。
+
+- 新工具的下拉、日期、时间与日期时间组合选择必须使用 ToolDock 自定义 SelectField / DateField / TimeField / DateTimeField，统一 Radix 浮层、主题、焦点和键盘交互；不得使用原生 date/time/datetime-local 浮层。
+- 新图片工具处理必须保持纯本地、安全 SVG 栅格化、独立 Worker 受控处理和有权限边界的保存 IPC；图片及密钥内容不得写入 SQLite/日志。
+- 新增内置工具沿用 src/shared/builtinToolRegistry.ts、版本化 SQLite 迁移；不覆盖用户已修改或删除的分类与工具状态。
+
+- 图片编码内置工具仅允许 PNG/JPEG/WebP/GIF/BMP/ICO 的二进制无损 Base64 往返；禁止把图片字节送到 src/lib/base64.ts（该文件只供 2 MiB UTF-8 文本使用）。转换需在独立 image-encoding Worker 中完成，限制 20 MiB 文件和 30 MiB 文本，严格检验魔数与 Data URL MIME，不引入二维码。
+- 日期/时间弹层通过 PickerPopoverContent 统一 Motion 进出动画，月份切换遵循方向；Normal/Reduced/Off 与系统无障碍设置优先。严禁新增原生 date/time 选择浮层。
+- 数据库 v4 只增加 builtin-image-encoding，不更改既有内置工具 ID、不重建用户已删除的类别；确认当前 feat/image-devtools-integration 分支未提交修改后再操作。
