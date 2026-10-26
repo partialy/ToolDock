@@ -27,6 +27,7 @@ export class FileTransferService extends EventEmitter {
  private tasks=new Map<string,TransferTask>()
  private tempRoot:string|null=null
  private timer:NodeJS.Timeout|null=null
+ private pendingReservationBytes=0
  private activeDownloads=0
  private inProgressUploads=new Set<string>()
  private activeResponses=new Map<string,ServerResponse>()
@@ -237,13 +238,20 @@ export class FileTransferService extends EventEmitter {
    const size=Number(b.size),name=String(b.name||'')
    if(!Number.isSafeInteger(size)||size<1||size>this.prefs.maxFileBytes||name.length>250)return sendJson(res,400,{error:'文件大小或名称无效'})
    const used=[...this.uploads.values()].filter(u=>!['accepted','rejected'].includes(u.status)).reduce((n,u)=>n+u.size,0)
-   if(used+size>this.prefs.maxTempBytes)return sendJson(res,429,{error:'暂存空间配额已满'})
-   const disk=await fs.statfs(this.tempRoot!)
-   if(disk.bavail*disk.bsize<size+2*GIB)return sendJson(res,507,{error:'暂存盘剩余空间不足'})
+   if(used+this.pendingReservationBytes+size>this.prefs.maxTempBytes)return sendJson(res,429,{error:'暂存空间配额已满'})
    if(this.uploads.size>=500)return sendJson(res,429,{error:'本次会话上传任务过多'})
-   const id=randomUUID(),temp=path.join(this.tempRoot!,id+'.part')
-   await fs.writeFile(temp,Buffer.alloc(0),{flag:'wx',mode:0o600})
-   this.uploads.set(id,{id,name:safeFilename(name),size,received:0,ip,status:'uploading',temp,owner:device.id,lastActive:Date.now()})
+   // Reserve synchronously before any await: simultaneous devices cannot overbook the quota.
+   this.pendingReservationBytes+=size
+   let temp=''
+   const id=randomUUID()
+   try{
+    const disk=await fs.statfs(this.tempRoot!)
+    if(disk.bavail*disk.bsize<size+this.pendingReservationBytes-size+2*GIB)return sendJson(res,507,{error:'暂存盘剩余空间不足'})
+    temp=path.join(this.tempRoot!,id+'.part')
+    await fs.writeFile(temp,Buffer.alloc(0),{flag:'wx',mode:0o600})
+    this.uploads.set(id,{id,name:safeFilename(name),size,received:0,ip,status:'uploading',temp,owner:device.id,lastActive:Date.now()})
+   }catch(e){if(temp)await fs.rm(temp,{force:true}).catch(()=>{});throw e}
+   finally{this.pendingReservationBytes-=size}
    this.tasks.set(id,{id,name:safeFilename(name),total:size,completed:0,direction:'upload',ip,status:'uploading'})
    this.emitChange();return sendJson(res,201,{id,offset:0})
   }
