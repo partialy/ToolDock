@@ -8,9 +8,10 @@ type Item={id:number;title:string;description:string;level:Level;action?:()=>voi
 type Push=(data:{title:string;description:string;level?:Level;action?:()=>void;sticky?:boolean;dedupeKey?:string})=>void
 const Context=createContext<Push>(()=>{})
 export const useNotification=()=>useContext(Context)
-export function NotificationProvider({children,position,onOpenTransfer}:{children:ReactNode;position:NotificationPosition;onOpenTransfer:()=>void}){
+export function NotificationProvider({children,position,onOpenTransfer,previewPositionChanges=false}:{children:ReactNode;position:NotificationPosition;onOpenTransfer:()=>void;previewPositionChanges?:boolean}){
  const [items,setItems]=useState<Item[]>([])
  const counter=useRef(0),timers=useRef<Map<number,ReturnType<typeof setTimeout>>>(new Map())
+ const lastPosition=useRef<NotificationPosition|null>(null)
  const {off,reduced}=useMicroMotion()
  const dismiss=useCallback((id:number)=>{setItems(a=>a.filter(t=>t.id!==id));const timer=timers.current.get(id);if(timer)clearTimeout(timer);timers.current.delete(id)},[])
  const push=useCallback<Push>(item=>{
@@ -28,6 +29,14 @@ export function NotificationProvider({children,position,onOpenTransfer}:{childre
   window.addEventListener('tooldock:toast',demo)
   return()=>{offPending();window.removeEventListener('tooldock:toast',demo)}
  },[push,onOpenTransfer])
+ useEffect(()=>{
+  if(!previewPositionChanges){lastPosition.current=null;return}
+  if(lastPosition.current===null){lastPosition.current=position;return}
+  if(lastPosition.current!==position){
+   lastPosition.current=position
+   push({title:'通知位置已更新',description:'今后的应用内通知将在这里显示。',level:'info',dedupeKey:'notification-position-preview'})
+  }
+ },[position,previewPositionChanges,push])
  useEffect(()=>()=>{for(const timer of timers.current.values())clearTimeout(timer);timers.current.clear()},[])
  const positions:Record<NotificationPosition,string>={
   'top-left':'top-16 left-4','top-right':'top-16 right-4',
