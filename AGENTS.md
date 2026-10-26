@@ -27,3 +27,7 @@
 - 图片编码内置工具仅允许 PNG/JPEG/WebP/GIF/BMP/ICO 的二进制无损 Base64 往返；禁止把图片字节送到 src/lib/base64.ts（该文件只供 2 MiB UTF-8 文本使用）。转换需在独立 image-encoding Worker 中完成，限制 20 MiB 文件和 30 MiB 文本，严格检验魔数与 Data URL MIME，不引入二维码。
 - 日期/时间弹层通过 PickerPopoverContent 统一 Motion 进出动画，月份切换遵循方向；Normal/Reduced/Off 与系统无障碍设置优先。严禁新增原生 date/time 选择浮层。
 - 数据库 v4 只增加 builtin-image-encoding，不更改既有内置工具 ID、不重建用户已删除的类别；确认当前 feat/image-devtools-integration 分支未提交修改后再操作。
+
+- 二维码工具：固定内置 ID builtin-qr-code-tool，路由 qr-code-tool；依赖 SQLite v5 增量迁移，不复活已经删除的 images 分类。完整 UI 配置/Logo 不持久化或联网，始终采用 UTF-8 原始文本编码到 Byte mode 的字节序列，严禁直接把 Unicode 字符串交给 qr-code-styling Byte mode（会截断中文/Emoji）。
+- 二维码 PNG/WebP/SVG 只导出经安全生成的本地结果。点阵及定位角颜色必须分别与背景达到至少 4.5:1；最终图像由本地 jsQR 扫码验证。验证失败可告知风险后选择导出，但不得当作扫码通过；SVG Logo 必须内嵌且无脚本/外链。
+- 所有应用内普通/危险操作使用 DialogProvider/useDialog 或 DialogShell，禁止 window.confirm、window.alert、window.prompt。危险操作默认聚焦取消；异步 confirmAction 禁止重复触发。Electron 原生打开/保存文件窗及备份恢复主进程最终安全确认保留不替换。

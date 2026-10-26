@@ -40,6 +40,11 @@ describe('二维码主题、内容与风险安全',()=>{
   expect(()=>validateQrConfig({...defaultQrConfig,accent:'#fefefe'})).toThrow()
   expect(()=>validateQrConfig({...defaultQrConfig,accent:'#ffffff'})).toThrow()
  })
+ it('Byte 模式以 UTF-8 字节填充二维码而不是截断中文字符',()=>{
+  const input='中文 QR 🌈'
+  const value=toStylingOptions({...defaultQrConfig,kind:'text',text:input}).data||''
+  expect(Array.from(value,c=>c.charCodeAt(0))).toEqual(Array.from(new TextEncoder().encode(input)))
+ })
  it('SVG 禁止外链、脚本和 file 路径，允许嵌入 PNG',()=>{
   assertSafeGeneratedSvg('<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><path d="m1 2"/></svg>')
   assertSafeGeneratedSvg('<svg><image href="data:image/png;base64,aGVsbG8="/></svg>')

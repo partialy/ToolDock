@@ -73,3 +73,13 @@ npm run dist
 - 自定义日期、时间选择器加入统一 Motion 动画、按方向切换月份、时间选项平滑滚动，遵循 Normal / Reduced / Off 和系统减少动画选项。
 - 新内置工具由 SQLite v4 增量迁移注册，保留用户已有的分类、名称、显隐和排序；不会恢复此前删除的分类。
 - 本功能完全离线，图片/编码不入 SQLite 或诊断日志。本轮不提供二维码功能。
+
+## 二维码工具与统一对话框（2026-10-26）
+
+- 「图片工具」中新增二维码工具：文本与 HTTP(S) 链接、六套主题、前景/背景/定位角自定义 HEX、六种点阵和三种定位角、128–2048px、自定义 Logo 及圆角。
+- 本地 PNG/JPEG/WebP Logo 最大 2 MiB，自动清除原文件元信息并内嵌到二维码。纠错等级可自动 Q/H，也可手动 L/M/Q/H；文本编码走 UTF-8 Byte 模式保留中文/Emoji/换行。
+- 对最终生成图片本地扫码验证，并显示通过或风险提示；本地解码失败时需要用户确认风险才能导出。支持 PNG/WebP/SVG 原生文件保存，SVG 为无脚本、无外部引用的独立文件。
+- 新增 SQLite v5 增量注册，不恢复此前删除的用户类别，不重设已修改的预置工具。
+- 统一 DialogShell、DialogProvider / useDialog、ConfirmDialog、DangerDialog、FormDialog、WorkspaceDialog；ToolDock 内删除工具/分类、清理 Cookie、迁移数据、恢复备份入口与清空日志改用统一视觉。备份恢复保留主进程的最终系统级安全确认与回滚保护。
+- 二维码生成完全本地、不访问链接或网络服务，图片和内容不写入数据库或诊断日志。界面遵守现有深浅色、Normal/Reduced/Off 动画。
+- E2E 自动化可参考忽略于 Git 的 plans/e2e-qr-dialog.cjs；在隔离 APPDATA 内验证二维码扫码解码一致性和 Dialog 交互。
