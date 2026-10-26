@@ -40,13 +40,13 @@ export function NotificationProvider({children,position,onOpenTransfer}:{childre
     animate={{opacity:1,x:0}} exit={{opacity:0,x:off||reduced?0:position.endsWith('right')?12:-12}}
     transition={{duration:off?0:reduced?.08:.18}}
     role={item.level==='error'?'alert':'status'}
-    className="pointer-events-auto rounded-xl border border-[var(--border)] bg-[var(--panel)] p-3 shadow-xl">
+    className="pointer-events-none rounded-xl border border-[var(--border)] bg-[var(--panel)] p-3 shadow-xl">
      <div className="flex gap-2.5">
       <span className="mt-0.5 text-indigo-400">{item.level==='error'||item.level==='warning'?<AlertTriangle size={19}/>:item.level==='success'?<CheckCircle2 size={19}/>:item.level==='info'?<Info size={19}/>:<Bell size={19}/>}</span>
       <div className="min-w-0 flex-1"><div className="text-sm font-semibold">{item.title}</div><p className="mt-1 break-words text-xs leading-5 muted">{item.description}</p>
-       {item.action&&<button className="mt-2 text-xs font-medium text-indigo-400 hover:underline" onClick={()=>{item.action?.();dismiss(item.id)}}>查看待接收文件</button>}
+       {item.action&&<button className="pointer-events-auto mt-2 text-xs font-medium text-indigo-400 hover:underline" onClick={()=>{item.action?.();dismiss(item.id)}}>查看待接收文件</button>}
       </div>
-      <button aria-label="关闭通知" className="self-start rounded-lg p-1 hover:bg-[var(--hover)]" onClick={()=>dismiss(item.id)}><X size={15}/></button>
+      <button aria-label="关闭通知" className="pointer-events-auto self-start rounded-lg p-1 hover:bg-[var(--hover)]" onClick={()=>dismiss(item.id)}><X size={15}/></button>
      </div>
     </motion.div>)}</AnimatePresence>
   </div>
