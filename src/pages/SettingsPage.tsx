@@ -2,23 +2,25 @@ import { useEffect,useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { SelectField } from '@/components/ui/select-field'
 import { SwitchField } from '@/components/ui/switch-field'
+import {useDialog} from '@/components/ui/dialog-provider'
 import { Archive, Folder, HardDrive, ShieldCheck, Trash2, AlertTriangle, RotateCw } from 'lucide-react'
 import type {DataInfo} from '@/types/models'
 import type {Workspace} from '@/store/useWorkspace'
 function SettingRow({title,description,children}:{title:string;description:string;children:React.ReactNode}){return <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] py-4 last:border-b-0"><div className="max-w-lg"><div className="font-medium">{title}</div><p className="mt-1 text-xs leading-5 muted">{description}</p></div><div className="shrink-0">{children}</div></div>}
 export function SettingsPage({ws}:{ws:Workspace}){
+ const dialog=useDialog()
  const [info,setInfo]=useState<DataInfo|null>(null),[target,setTarget]=useState(''),[message,setMessage]=useState(''),[error,setError]=useState(''),[restart,setRestart]=useState(false),[busy,setBusy]=useState(false)
  const load=()=>window.toolDock.data.getInfo().then(setInfo).catch(e=>setError(String(e)))
  useEffect(()=>{void load()},[])
  const action=async(fn:()=>Promise<unknown>,success:string)=>{setBusy(true);setError('');setMessage('');try{const result=await fn();setMessage(success);await load();return result}catch(e){setError(e instanceof Error?e.message:String(e));return null}finally{setBusy(false)}}
  const select=async()=>{const p=await window.toolDock.data.choose();if(p)setTarget(p)}
  const migrate=async()=>{
-  if(!target||!window.confirm('将当前数据复制到新目录并在重新启动后切换。原目录保留，是否继续？'))return
+  if(!target||!await dialog.confirm({title:'迁移数据目录',description:'将当前数据复制到新目录并在重新启动后切换。原目录保留，是否继续？',variant:'warning',confirmText:'确认迁移'}))return
   const result=await action(()=>window.toolDock.data.migrate(target),'数据复制完成，请重新启动应用以启用新目录。')
   if(result)setRestart(true)
  }
- const restore=async()=>{const result=await action(()=>window.toolDock.data.restore(),'备份数据已恢复，请重新启动应用。');if(result)setRestart(true)}
- const clearOld=async(id:string,path:string)=>{if(window.confirm('确认删除旧数据副本？\n'+path+'\n此操作不可撤销！'))await action(()=>window.toolDock.data.deleteOld(id),'旧数据已删除')}
+ const restore=async()=>{if(!await dialog.confirm({title:'恢复数据备份',description:'恢复备份可能覆盖当前分类、工具和设置。选择备份后主进程还会再次要求确认。',variant:'danger',confirmText:'继续选择备份'}))return;const result=await action(()=>window.toolDock.data.restore(),'备份数据已恢复，请重新启动应用。');if(result)setRestart(true)}
+ const clearOld=async(id:string,path:string)=>{if(await dialog.confirm({title:'删除旧数据副本',description:'即将删除：\n'+path+'\n此操作不可撤销。',variant:'danger',confirmText:'确认永久删除'}))await action(()=>window.toolDock.data.deleteOld(id),'旧数据已删除')}
  return <div className="mx-auto max-w-4xl space-y-7 p-7">
   <div><h1 className="text-2xl font-semibold">设置</h1><p className="mt-2 text-sm muted">调整工作区外观、网页安全策略和本地数据存储。</p></div>
   <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5"><h2 className="mb-2 text-sm font-semibold">外观与体验</h2>
@@ -40,7 +42,7 @@ export function SettingsPage({ws}:{ws:Workspace}){
    <p className="mb-4 text-xs muted">手动备份分类、工具、设置及工具文件。备份可能包含敏感信息，请妥善保管。</p>
    <div className="flex gap-2"><Button size="sm" disabled={busy} onClick={()=>void action(()=>window.toolDock.data.backup(),'备份已保存')}><Archive size={14}/> 导出备份</Button><Button size="sm" disabled={busy} onClick={()=>void restore()}><RotateCw size={14}/> 从备份恢复</Button></div>
   </section>
-  <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5"><h2 className="mb-2 text-sm font-semibold">诊断日志</h2><p className="mb-4 text-xs muted">仅在本机记录操作失败类型，不记录密码、私钥或网页内容；最多保存7天。</p><div className="flex gap-2"><Button size="sm" onClick={()=>void action(()=>window.toolDock.data.exportLogs(),'诊断日志已导出')}>导出诊断日志</Button><Button size="sm" variant="danger" onClick={()=>{if(window.confirm('清空所有本地诊断日志？'))void action(()=>window.toolDock.data.clearLogs(),'日志已清空')}}>清空日志</Button></div></section>
+  <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5"><h2 className="mb-2 text-sm font-semibold">诊断日志</h2><p className="mb-4 text-xs muted">仅在本机记录操作失败类型，不记录密码、私钥或网页内容；最多保存7天。</p><div className="flex gap-2"><Button size="sm" onClick={()=>void action(()=>window.toolDock.data.exportLogs(),'诊断日志已导出')}>导出诊断日志</Button><Button size="sm" variant="danger" onClick={()=>void dialog.confirmAction({title:'清空诊断日志',description:'清空所有本地诊断日志？操作后无法恢复。',variant:'danger',confirmText:'清空日志',onConfirm:async()=>{await action(()=>window.toolDock.data.clearLogs(),'日志已清空')}})}>清空日志</Button></div></section>
   {restart&&<div className="flex items-center justify-between rounded-xl border border-amber-500/40 bg-amber-500/10 p-4"><span className="text-sm text-amber-300">数据已准备好，重启后切换。</span><Button variant="primary" onClick={()=>void window.toolDock.data.restart()}>立即重启</Button></div>}
   {message&&<p role="status" className="text-sm text-emerald-400">{message}</p>}{error&&<p role="alert" className="text-sm text-red-400">{error}</p>}
  </div>

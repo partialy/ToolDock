@@ -6,6 +6,7 @@ import { Eye, EyeOff, GripVertical, Pencil, Trash2, FolderPlus, Plus, RotateCcw 
 import { Icon } from '@/components/ui/icon'
 import { Button } from '@/components/ui/button'
 import { SelectField } from '@/components/ui/select-field'
+import { useDialog } from '@/components/ui/dialog-provider'
 import type {Workspace} from '@/store/useWorkspace'
 import type {Category,Tool} from '@/types/models'
 type Edit=({kind:'category';item?:Category}|{kind:'tool';item?:Tool})
@@ -14,6 +15,7 @@ function SortableRow({id,children}:{id:string;children:(handle:Record<string,unk
  return <div ref={setNodeRef} style={{transform:CSS.Transform.toString(transform),transition,zIndex:isDragging?5:0,position:'relative'}} className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--panel)] p-2">{children({...attributes,...listeners})}</div>
 }
 export function ManagerPage({ws,onEdit}:{ws:Workspace;onEdit:(edit:Edit)=>void}){
+ const dialog=useDialog()
  const [tab,setTab]=useState('categories')
  const [categoryId,setCategoryId]=useState('default')
  const sensors=useSensors(useSensor(PointerSensor,{activationConstraint:{distance:6}}),useSensor(KeyboardSensor,{coordinateGetter:sortableKeyboardCoordinates}))
@@ -35,13 +37,12 @@ export function ManagerPage({ws,onEdit}:{ws:Workspace;onEdit:(edit:Edit)=>void})
  const remove=async(t:Tool|Category,category:boolean)=>{
   if(category&&t.id==='default')return
   const msg=category?'删除分类「'+t.name+'」？分类中的工具将自动移至默认分类。':'删除工具「'+t.name+'」？'
-  if(!window.confirm(msg))return
-  await ws.execute(()=>category?window.toolDock.categories.remove(t.id):window.toolDock.tools.remove(t.id))
+  await dialog.confirmAction({title:category?'删除分类':'删除工具',description:msg,variant:'danger',confirmText:'确认删除',onConfirm:async()=>{await ws.execute(()=>category?window.toolDock.categories.remove(t.id):window.toolDock.tools.remove(t.id))}})
  }
  const actions=(t:Tool|Category,category:boolean)=><div className="ml-auto flex shrink-0 items-center gap-1">
   <Button variant="ghost" size="icon" title={t.visible?'隐藏':'显示'} onClick={()=>void setVisible(t,category)}>{t.visible?<Eye size={15}/>:<EyeOff size={15}/>}</Button>
   <Button variant="ghost" size="icon" title="编辑" onClick={()=>onEdit(category?{kind:'category',item:t as Category}:{kind:'tool',item:t as Tool})}><Pencil size={15}/></Button>
-  {!category&&(t as Tool).type==='link'&&<Button variant="ghost" size="icon" title="清除网页 Cookie 和缓存" onClick={()=>{if(window.confirm('清除「'+t.name+'」的网站登录状态与缓存？'))void ws.execute(()=>window.toolDock.views.clearData(t.id))}}><RotateCcw size={15}/></Button>}
+  {!category&&(t as Tool).type==='link'&&<Button variant="ghost" size="icon" title="清除网页 Cookie 和缓存" onClick={()=>void dialog.confirmAction({title:'清理网页缓存',description:'清除「'+t.name+'」的网站登录状态、Cookie 和缓存？',variant:'warning',confirmText:'确认清理',onConfirm:async()=>{await ws.execute(()=>window.toolDock.views.clearData(t.id))}})}><RotateCcw size={15}/></Button>}
   {(!category?!(t as Tool).isBuiltin:t.id!=='default')&&<Button variant="danger" size="icon" title="删除" onClick={()=>void remove(t,category)}><Trash2 size={15}/></Button>}
  </div>
  return <div className="mx-auto max-w-5xl space-y-5 p-7">

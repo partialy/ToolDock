@@ -12,7 +12,7 @@ import {sanitizeSvg} from '@/lib/image/svg-safety'
 import {zipToSink} from '@/lib/export/zip-stream'
 import {runImageWorker} from '@/lib/image/worker-client'
 import {rasterizeSafeSvg} from '@/lib/image/svg-rasterize'
-import * as Dialog from '@radix-ui/react-dialog'
+import {DialogShell} from '@/components/ui/dialog-shell'
 
 type Item={id:string;file:File;preview:string;stem:string;crop?:CropRect}
 type Result={id:string;sourceId:string;name:string;blob:Blob;format:'png'|'jpg'|'webp'|'ico';width:number;height:number}
@@ -33,7 +33,12 @@ async function saveBlob(blob:Blob,name:string,format:'png'|'jpg'|'webp'|'ico'){
 function ImageCompareDialog({item,result,onClose}:{item:Item;result:Result|null;onClose:()=>void}){
  const [url,setUrl]=useState('')
  useEffect(()=>{if(!result)return;const u=URL.createObjectURL(result.blob);setUrl(u);return()=>URL.revokeObjectURL(u)},[result])
- return <Dialog.Root open onOpenChange={v=>{if(!v)onClose()}}><Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-[260] bg-black/70"/><Dialog.Content className="fixed inset-3 z-[261] mx-auto flex max-w-[1200px] flex-col overflow-y-auto rounded-2xl bg-[var(--panel)] p-5 shadow-2xl sm:inset-8"><div className="mb-3 flex items-center justify-between"><Dialog.Title className="text-base font-semibold">图片预览对比 · {item.file.name}</Dialog.Title><Dialog.Close aria-label="关闭预览"><X size={18}/></Dialog.Close></div><div className="grid min-h-0 flex-1 gap-4 md:grid-cols-2"><div className="min-h-[220px] space-y-2"><div className="text-xs muted">原图 · {formatFile(item.file.size)}</div><img src={item.preview} alt="原图" className="h-[min(65vh,600px)] w-full rounded-xl bg-[var(--panel-alt)] object-contain"/></div><div className="min-h-[220px] space-y-2"><div className="text-xs muted">{result?'处理结果 · '+result.width+'×'+result.height+' · '+formatFile(result.blob.size):'尚无处理结果'}</div>{result&&url&&<img src={url} alt="处理后的图片" className="h-[min(65vh,600px)] w-full rounded-xl bg-[var(--panel-alt)] object-contain"/>}</div></div></Dialog.Content></Dialog.Portal></Dialog.Root>
+ return <DialogShell open onOpenChange={v=>{if(!v)onClose()}} title={'图片预览对比 · '+item.file.name} width="workspace">
+  <div className="grid min-h-0 gap-4 md:grid-cols-2">
+   <div className="min-h-[220px] space-y-2"><div className="text-xs muted">原图 · {formatFile(item.file.size)}</div><img src={item.preview} alt="原图" className="h-[min(65vh,600px)] w-full rounded-xl bg-[var(--panel-alt)] object-contain"/></div>
+   <div className="min-h-[220px] space-y-2"><div className="text-xs muted">{result?'处理结果 · '+result.width+'×'+result.height+' · '+formatFile(result.blob.size):'尚无处理结果'}</div>{result&&url&&<img src={url} alt="处理后的图片" className="h-[min(65vh,600px)] w-full rounded-xl bg-[var(--panel-alt)] object-contain"/>}</div>
+  </div>
+ </DialogShell>
 }
 export function ImageWorkspace({kind}:{kind:'image'|'logo'}){
  const logo=kind==='logo'
