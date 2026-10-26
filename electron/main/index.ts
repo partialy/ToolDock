@@ -62,7 +62,7 @@ function channels(){
  register('data:exportLogs',()=>exportLogs(win!))
  register('data:clearLogs',()=>clearLogs())
  register('data:restart',()=>{app.relaunch();app.quit()})
- register('export:start',(a:unknown)=>{const v=z.object({name:z.string().min(1).max(128),format:z.enum(['zip','png','jpg','webp','gif','bmp','ico','txt'])}).parse(a);return beginFileExport(win!,v.name,v.format)})
+ register('export:start',(a:unknown)=>{const v=z.object({name:z.string().min(1).max(128),format:z.enum(['zip','png','jpg','webp','gif','bmp','ico','txt','svg'])}).parse(a);return beginFileExport(win!,v.name,v.format)})
  register('export:chunk',(a:unknown)=>{const v=z.object({id:z.string().uuid(),bytes:z.instanceof(Uint8Array)}).parse(a);return appendExportChunk(v.id,v.bytes)})
  register('export:finish',(a:unknown)=>finishFileExport(z.string().uuid().parse(a)))
  register('export:cancel',(a:unknown)=>cancelFileExport(z.string().uuid().parse(a)))

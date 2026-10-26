@@ -6,7 +6,7 @@ export interface ToolDockAPI {
   settings: { get():Promise<Settings>; set<K extends keyof Settings>(key:K,value:Settings[K]):Promise<Settings> }
   views: { open(id:string):Promise<void>; bounds(rect:{x:number;y:number;width:number;height:number}):Promise<void>; hide():Promise<void>; show():Promise<void>; reload():Promise<void>; clearData(id:string):Promise<void>; onStatus(cb:(status:{status:string;message?:string})=>void):()=>void }
   data: { getInfo():Promise<DataInfo>; choose():Promise<string|null>; migrate(path:string):Promise<{restartRequired:boolean}>; deleteOld(id:string):Promise<void>; openFolder():Promise<void>; backup():Promise<string|null>; restore():Promise<{restartRequired:boolean}|null>; restart():Promise<void>; exportLogs():Promise<string|null>; clearLogs():Promise<void> }
-  export: {start(name:string,format:'zip'|'png'|'jpg'|'webp'|'gif'|'bmp'|'ico'|'txt'):Promise<string|null>;chunk(id:string,bytes:Uint8Array):Promise<void>;finish(id:string):Promise<string>;cancel(id:string):Promise<void>}
+  export: {start(name:string,format:'zip'|'png'|'jpg'|'webp'|'gif'|'bmp'|'ico'|'txt'|'svg'):Promise<string|null>;chunk(id:string,bytes:Uint8Array):Promise<void>;finish(id:string):Promise<string>;cancel(id:string):Promise<void>}
   crypto: { rsa(bits:number,passphrase?:string):Promise<CryptoResult>; ssh(kind:'ed25519'|'rsa',bits:number,comment:string,passphrase?:string):Promise<CryptoResult>; ec(curve:'P-256'|'P-384',passphrase?:string):Promise<CryptoResult>; aes(bits:128|256):Promise<CryptoResult>; random(length:number,alphabet:string,groups?:string[]):Promise<CryptoResult> }
 }
 declare global { interface Window { toolDock: ToolDockAPI } }

@@ -3,11 +3,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {randomUUID} from 'node:crypto'
 
-const ALLOWED=['zip','png','jpg','webp','gif','bmp','ico','txt'] as const
+const ALLOWED=['zip','png','jpg','webp','gif','bmp','ico','txt','svg'] as const
 type Format=(typeof ALLOWED)[number]
 type Session={fd:number;temp:string;target:string;length:number}
 const sessions=new Map<string,Session>()
-const suffixes:{[K in Format]:string}={zip:'ZIP 归档',png:'PNG 图片',jpg:'JPEG 图片',webp:'WebP 图片',gif:'GIF 图片',bmp:'BMP 图片',ico:'Windows ICO',txt:'文本文件'}
+const suffixes:{[K in Format]:string}={zip:'ZIP 归档',png:'PNG 图片',jpg:'JPEG 图片',webp:'WebP 图片',gif:'GIF 图片',bmp:'BMP 图片',ico:'Windows ICO',txt:'文本文件',svg:'SVG 矢量图'}
 export async function beginFileExport(win:BrowserWindow,name:string,format:Format){
  if(!ALLOWED.includes(format))throw Error('不支持的文件格式')
  const basename=path.basename(name).replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').slice(0,128)

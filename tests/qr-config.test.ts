@@ -41,7 +41,7 @@ describe('二维码主题、内容与风险安全',()=>{
   expect(()=>validateQrConfig({...defaultQrConfig,accent:'#ffffff'})).toThrow()
  })
  it('SVG 禁止外链、脚本和 file 路径，允许嵌入 PNG',()=>{
-  assertSafeGeneratedSvg('<svg xmlns="http://www.w3.org/2000/svg"><path d="m1 2"/></svg>')
+  assertSafeGeneratedSvg('<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><path d="m1 2"/></svg>')
   assertSafeGeneratedSvg('<svg><image href="data:image/png;base64,aGVsbG8="/></svg>')
   expect(()=>assertSafeGeneratedSvg('<svg><script>alert(1)</script></svg>')).toThrow()
   expect(()=>assertSafeGeneratedSvg('<svg><image href="https://example.com/a.png"/></svg>')).toThrow()

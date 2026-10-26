@@ -22,7 +22,8 @@ export async function qrBlob(snapshot:QrSnapshot,format:QrExportFormat):Promise<
 }
 export function assertSafeGeneratedSvg(svg:string){
  if(!/^\s*<svg\b/i.test(svg)&&!/<svg\b/i.test(svg))throw Error('SVG 结构错误')
- if(/<\s*(script|foreignObject|iframe|object)\b|<!DOCTYPE|<!ENTITY|onload\s*=|onerror\s*=|javascript:|file:|https?:\/\//i.test(svg.replace(/xmlns="http:\/\/www\.w3\.org\/2000\/svg"/g,'')))throw Error('SVG 包含不安全外部引用或脚本')
+ const withoutNamespaces=svg.replace(/\s+xmlns(?::[\w-]+)?\s*=\s*["']https?:\/\/www\.w3\.org\/[^"']+["']/gi,'')
+ if(/<\s*(script|foreignObject|iframe|object)\b|<!DOCTYPE|<!ENTITY|\bon\w+\s*=|javascript:|file:|https?:\/\//i.test(withoutNamespaces))throw Error('SVG 包含不安全外部引用或脚本')
  for(const match of svg.matchAll(/(?:href|src)\s*=\s*["']([^"']+)["']/gi)){
   if(!match[1].startsWith('data:image/png;base64,'))throw Error('SVG 包含非内嵌的图片引用')
  }

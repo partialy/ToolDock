@@ -72,7 +72,10 @@ export function validateQrConfig(cfg:QrConfig):{data:string;contrast:number;acce
 }
 export function toStylingOptions(cfg:QrConfig,logo?:string):Options{
  const {data}=validateQrConfig(cfg)
- return {type:'canvas',width:cfg.size,height:cfg.size,margin:Math.max(8,Math.round(cfg.size*.085)),data,
+ // qr-code-styling Byte mode consumes 8-bit character codes, not Unicode text.
+ const bytes=new TextEncoder().encode(data)
+ const binary=String.fromCharCode(...bytes)
+ return {type:'canvas',width:cfg.size,height:cfg.size,margin:Math.max(8,Math.round(cfg.size*.085)),data:binary,
   qrOptions:{typeNumber:0,mode:'Byte',errorCorrectionLevel:effectiveEcc(cfg)},
   dotsOptions:{type:cfg.dotStyle,color:normalizeHex(cfg.dark)},
   cornersSquareOptions:{type:cfg.eyeStyle,color:normalizeHex(cfg.accent)},

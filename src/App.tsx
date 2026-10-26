@@ -7,6 +7,7 @@ import { Sidebar } from '@/components/layout/Sidebar'
 import { EditorDialog } from '@/components/forms/EditorDialog'
 import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/dialog'
+import { DialogProvider } from '@/components/ui/dialog-provider'
 import { useWorkspace } from '@/store/useWorkspace'
 import { HomePage } from '@/pages/HomePage'
 import { ManagerPage } from '@/pages/ManagerPage'
@@ -16,6 +17,7 @@ import { JsonToolPage } from '@/pages/JsonToolPage'
 import { ImageProcessorPage } from '@/pages/ImageProcessorPage'
 import { LogoIconGeneratorPage } from '@/pages/LogoIconGeneratorPage'
 import { ImageEncodingPage } from '@/pages/ImageEncodingPage'
+import { QrCodeToolPage } from '@/pages/QrCodeToolPage'
 import { TimeConverterPage } from '@/pages/TimeConverterPage'
 import { UuidGeneratorPage } from '@/pages/UuidGeneratorPage'
 import { builtinByTarget } from '@/shared/builtinToolRegistry'
@@ -79,12 +81,12 @@ export default function App(){
   if(active==='about')return <div className="mx-auto max-w-3xl p-12"><div className="mb-4 flex items-center gap-3"><Blocks size={32} className="text-indigo-400"/><h1 className="text-2xl font-semibold">ToolDock</h1></div><p className="mb-5 text-sm muted">桌面工具聚合平台 · v0.1.0</p><p className="text-sm leading-8 muted">React + Electron + shadcn/ui + Tailwind CSS + Motion + SQLite。将常用网页与开发工具集中在一个独立工作区。</p></div>
   if(tool?.type==='link')return <WebTool key={tool.id} toolId={tool.id}/>
   if(tool?.type==='internal'&&builtinByTarget(tool.target)){
-   const pages:Record<string,React.ReactNode>={'key-generator':<KeyGeneratorPage key={tool.id}/>,'json-tool':<JsonToolPage key={tool.id}/>,'image-processor':<ImageProcessorPage key={tool.id}/>,'logo-icon-generator':<LogoIconGeneratorPage key={tool.id}/>,'image-encoding':<ImageEncodingPage key={tool.id}/>,'time-converter':<TimeConverterPage key={tool.id}/>,'uuid-generator':<UuidGeneratorPage key={tool.id}/>}
+   const pages:Record<string,React.ReactNode>={'key-generator':<KeyGeneratorPage key={tool.id}/>,'json-tool':<JsonToolPage key={tool.id}/>,'image-processor':<ImageProcessorPage key={tool.id}/>,'logo-icon-generator':<LogoIconGeneratorPage key={tool.id}/>,'image-encoding':<ImageEncodingPage key={tool.id}/>,'qr-code-tool':<QrCodeToolPage key={tool.id}/>,'time-converter':<TimeConverterPage key={tool.id}/>,'uuid-generator':<UuidGeneratorPage key={tool.id}/>}
    return pages[tool.target]
   }
   return <div className="p-10 muted">页面不存在或工具已删除。请从侧栏选择工具。</div>
  }
- return <MotionPreferenceContext.Provider value={ws.settings.motion}><MotionConfig reducedMotion={motionOff?'always':'never'}>
+ return <MotionPreferenceContext.Provider value={ws.settings.motion}><MotionConfig reducedMotion={motionOff?'always':'never'}><DialogProvider>
   <div className={'flex h-screen w-screen flex-col overflow-hidden bg-[var(--background)] text-[var(--foreground)] '+(ws.settings.theme==='dark'?'dark':'')}>
    <HeaderBar back={()=>stepHistory(position-1)} forward={()=>stepHistory(position+1)} canBack={position>0} canForward={position<history.length-1} title={title} onAddCategory={()=>openEditor({kind:'category'})} onAddTool={()=>openEditor({kind:'tool'})} settings={ws.settings} onTheme={()=>void ws.setPreference('theme',ws.settings.theme==='dark'?'light':'dark')}/>
    <div className="relative flex min-h-0 flex-1">
@@ -100,5 +102,5 @@ export default function App(){
    <EditorDialog edit={editor} onClose={closeEditor} ws={ws}/>
    <Modal open={Boolean(pending)} onOpenChange={v=>{if(!v)setPending(null)}} title="离开当前工具？" footer={<><Button onClick={()=>setPending(null)}>继续编辑</Button><Button variant="primary" onClick={confirmNavigation}>确认离开</Button></>}><p className="text-sm muted">当前工具包含尚未导出的图片或处理结果。离开后将清除临时工作区，是否继续？</p></Modal>
   </div>
- </MotionConfig></MotionPreferenceContext.Provider>
+ </DialogProvider></MotionConfig></MotionPreferenceContext.Provider>
 }
