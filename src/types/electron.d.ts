@@ -1,6 +1,8 @@
 import type { Category, Tool, Settings, DataInfo, CryptoResult } from './models'
+import type {PipelineInput,PipelineSaved,PipelineSummary} from '../shared/codecModels'
 import type {TransferPreferences,TransferSnapshot,SharedFile,LanInterface} from '../shared/fileTransferModels'
 export interface ToolDockAPI {
+  codecPipelines:{list():Promise<PipelineSummary[]>;get(id:string):Promise<PipelineSaved>;create(data:PipelineInput):Promise<PipelineSaved>;update(id:string,expectedRevision:number,data:PipelineInput):Promise<PipelineSaved>;duplicate(id:string,newName?:string):Promise<PipelineSaved>;remove(id:string,expectedRevision?:number):Promise<void>}
   window: { minimize(): Promise<void>; toggleMaximize(): Promise<void>; close(): Promise<void>; isMaximized(): Promise<boolean> }
   categories: { list(): Promise<Category[]>; save(input: Partial<Category> & {name: string}): Promise<Category>; remove(id:string):Promise<void>; reorder(ids:string[]):Promise<void> }
   tools: { list(): Promise<Tool[]>; save(input: Partial<Tool> & {name: string; categoryId:string; type:string; target:string}):Promise<Tool>; remove(id:string):Promise<void>; reorder(categoryId:string,ids:string[]):Promise<void> }

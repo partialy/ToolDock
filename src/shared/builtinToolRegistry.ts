@@ -2,6 +2,7 @@ export const BUILTIN_TOOLS = [
   { id:'builtin-key-generator', target:'key-generator', name:'密钥生成器', icon:'key-round', defaultCategoryId:'developer' },
   { id:'builtin-json-tool', target:'json-tool', name:'JSON 处理', icon:'braces', defaultCategoryId:'developer' },
   { id:'builtin-text-diff', target:'text-diff', name:'文本 / JSON 差异对比', icon:'git-compare-arrows', defaultCategoryId:'developer' },
+  { id:'builtin-codec-tool', target:'codec-tool', name:'编解码', icon:'file-code-2', defaultCategoryId:'developer' },
   { id:'builtin-image-processor', target:'image-processor', name:'图片处理', icon:'images', defaultCategoryId:'images' },
   { id:'builtin-logo-icon-generator', target:'logo-icon-generator', name:'Logo / ICO 生成', icon:'app-window', defaultCategoryId:'images' },
   { id:'builtin-image-encoding', target:'image-encoding', name:'图片编码', icon:'file-code-2', defaultCategoryId:'images' },

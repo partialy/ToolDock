@@ -2,7 +2,9 @@ import { app, BrowserWindow, dialog, ipcMain, screen } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
-import { initStore, closeStore, listCategories, saveCategory, removeCategory, reorderCategories, listTools, saveTool, removeTool, reorderTools, getSettings, putSetting, getDataInfo } from './database/store'
+import { initStore, closeStore, listCategories, saveCategory, removeCategory, reorderCategories, listTools, saveTool, removeTool, reorderTools, getSettings, putSetting, getDataInfo, getDb } from './database/store'
+import {listCodecPipelines,getCodecPipeline,createCodecPipeline,updateCodecPipeline,duplicateCodecPipeline,removeCodecPipeline} from './database/codec-pipelines'
+import {pipelineInputSchema} from '../../src/shared/codecModels'
 import { allowedUrl, openWebview, removeWebview, setWebBounds, hideWebview, showWebview, reloadWebview, clearWebData } from './views/webviews'
 import { initMarker, chooseDataFolder, migrateData, deleteOldData, openDataFolder, backupData, restoreData } from './services/data'
 import { generateRsa, generateSsh, generateEc, generateAes, generateRandom } from './services/crypto'
@@ -12,6 +14,8 @@ import {fileTransfer} from './services/transfer'
 
 const devMode=!app.isPackaged
 app.setName(devMode?'ToolDock-Dev':'ToolDock')
+// Explicit test-only override: APPDATA alone is not sufficient for Electron app.getPath('appData').
+if(devMode&&process.env.TOOLDOCK_E2E_APPDATA){const isolated=path.resolve(process.env.TOOLDOCK_E2E_APPDATA);fs.mkdirSync(isolated,{recursive:true});app.setPath('appData',isolated)}
 const base=path.join(app.getPath('appData'),devMode?'ToolDock-Dev':'ToolDock')
 fs.mkdirSync(base,{recursive:true})
 app.setPath('userData',base)
@@ -26,6 +30,12 @@ const toolInput=z.object({id:z.string().optional(),name:z.string().min(1).max(80
 const order=z.array(z.string()).max(10000)
 const dimensions=z.object({x:z.number().finite(),y:z.number().finite(),width:z.number().finite().min(0).max(10000),height:z.number().finite().min(0).max(10000)})
 function channels(){
+ register('codecPipelines:list',()=>listCodecPipelines(getDb()))
+ register('codecPipelines:get',(a:unknown)=>getCodecPipeline(getDb(),z.uuid().parse(a)))
+ register('codecPipelines:create',(a:unknown)=>createCodecPipeline(getDb(),pipelineInputSchema.parse(a)))
+ register('codecPipelines:update',(a:unknown)=>{const p=z.strictObject({id:z.uuid(),expectedRevision:z.number().int().positive(),data:pipelineInputSchema}).parse(a);return updateCodecPipeline(getDb(),p.id,p.expectedRevision,p.data)})
+ register('codecPipelines:duplicate',(a:unknown)=>{const p=z.strictObject({id:z.uuid(),newName:z.string().max(80).optional()}).parse(a);return duplicateCodecPipeline(getDb(),p.id,p.newName)})
+ register('codecPipelines:remove',(a:unknown)=>{const p=z.strictObject({id:z.uuid(),expectedRevision:z.number().int().positive().optional()}).parse(a);return removeCodecPipeline(getDb(),p.id,p.expectedRevision)})
  register('window:minimize',()=>win!.minimize())
  register('window:toggleMaximize',()=>{if(win!.isMaximized())win!.unmaximize();else win!.maximize()})
  register('window:close',()=>win!.close())
