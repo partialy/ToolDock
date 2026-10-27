@@ -3,18 +3,18 @@ const MAX_BYTES=2*1024*1024
 const enc=new TextEncoder()
 const dec=new TextDecoder('utf-8',{fatal:true})
 
-export function encodeBase64(value:string,variant:Exclude<Base64Variant,'auto'>='standard',padded=variant==='standard'):string {
+export function encodeBase64(value:string,variant:Exclude<Base64Variant,'auto'>='standard',padded=variant==='standard',limitBytes=MAX_BYTES):string {
  const bytes=enc.encode(value)
- if(bytes.length>MAX_BYTES)throw Error('输入超过 2 MiB 的 Base64 文本处理上限')
+ if(bytes.length>limitBytes)throw Error(limitBytes===MAX_BYTES?'输入超过 2 MiB 的 Base64 文本处理上限':'输入超过 Base64 文本处理上限')
  let binary=''
  for(let start=0;start<bytes.length;start+=8192)binary+=String.fromCharCode(...bytes.subarray(start,start+8192))
  const result=btoa(binary)
  const value64=variant==='url'?result.replace(/\+/g,'-').replace(/\//g,'_'):result
  return padded?value64:value64.replace(/=+$/,'')
 }
-export function decodeBase64(value:string,variant:Base64Variant='auto'):string {
+export function decodeBase64(value:string,variant:Base64Variant='auto',limitBytes=MAX_BYTES):string {
  const clean=value.trim().replace(/\r|\n/g,'')
- if(clean.length>MAX_BYTES*4)throw Error('编码内容超过处理上限')
+ if(clean.length>limitBytes*4)throw Error('编码内容超过处理上限')
  if(!clean)return ''
  const standard=/[+/]/.test(clean),safe=/[-_]/.test(clean)
  if(standard&&safe)throw Error('不能混合标准 Base64 与 URL Safe 字母表')
@@ -33,7 +33,7 @@ export function decodeBase64(value:string,variant:Base64Variant='auto'):string {
  try { binary=atob(normalized+'='.repeat(padLength)) } catch { throw Error('Base64 内容无效') }
  // 严格验证末位 unused bits，避免 atob 的宽松容错。
  if(btoa(binary).replace(/=+$/,'')!==normalized)throw Error('Base64 存在非规范尾部位')
- if(binary.length>MAX_BYTES)throw Error('解码结果超过 2 MiB')
+ if(binary.length>limitBytes)throw Error('解码结果超过处理上限')
  const bytes=Uint8Array.from(binary,c=>c.charCodeAt(0))
  try {return dec.decode(bytes)}catch{throw Error('Base64 解码结果不是有效的 UTF-8 文本')}
 }
