@@ -16,6 +16,7 @@ import { SettingsPage } from '@/pages/SettingsPage'
 import { KeyGeneratorPage } from '@/pages/KeyGeneratorPage'
 import { JsonToolPage } from '@/pages/JsonToolPage'
 import { TextDiffPage } from '@/pages/TextDiffPage'
+import {CodecToolPage} from '@/pages/CodecToolPage'
 import { ImageProcessorPage } from '@/pages/ImageProcessorPage'
 import { LogoIconGeneratorPage } from '@/pages/LogoIconGeneratorPage'
 import { ImageEncodingPage } from '@/pages/ImageEncodingPage'
@@ -85,7 +86,7 @@ export default function App(){
   if(active==='about')return <div className="mx-auto max-w-3xl p-12"><div className="mb-4 flex items-center gap-3"><Blocks size={32} className="text-indigo-400"/><h1 className="text-2xl font-semibold">ToolDock</h1></div><p className="mb-5 text-sm muted">桌面工具聚合平台 · v0.1.0</p><p className="text-sm leading-8 muted">React + Electron + shadcn/ui + Tailwind CSS + Motion + SQLite。将常用网页与开发工具集中在一个独立工作区。</p></div>
   if(tool?.type==='link')return <WebTool key={tool.id} toolId={tool.id}/>
   if(tool?.type==='internal'&&builtinByTarget(tool.target)){
-   const pages:Record<string,React.ReactNode>={'key-generator':<KeyGeneratorPage key={tool.id}/>,'json-tool':<JsonToolPage key={tool.id}/>,'text-diff':<TextDiffPage key={tool.id}/>,'image-processor':<ImageProcessorPage key={tool.id}/>,'logo-icon-generator':<LogoIconGeneratorPage key={tool.id}/>,'image-encoding':<ImageEncodingPage key={tool.id}/>,'qr-code-tool':<QrCodeToolPage key={tool.id}/>,'file-transfer':<FileTransferPage key={tool.id}/>,'time-converter':<TimeConverterPage key={tool.id}/>,'uuid-generator':<UuidGeneratorPage key={tool.id}/>}
+   const pages:Record<string,React.ReactNode>={'key-generator':<KeyGeneratorPage key={tool.id}/>,'json-tool':<JsonToolPage key={tool.id}/>,'text-diff':<TextDiffPage key={tool.id}/>,'codec-tool':<CodecToolPage key={tool.id}/>,'image-processor':<ImageProcessorPage key={tool.id}/>,'logo-icon-generator':<LogoIconGeneratorPage key={tool.id}/>,'image-encoding':<ImageEncodingPage key={tool.id}/>,'qr-code-tool':<QrCodeToolPage key={tool.id}/>,'file-transfer':<FileTransferPage key={tool.id}/>,'time-converter':<TimeConverterPage key={tool.id}/>,'uuid-generator':<UuidGeneratorPage key={tool.id}/>}
    return pages[tool.target]
   }
   return <div className="p-10 muted">页面不存在或工具已删除。请从侧栏选择工具。</div>
@@ -104,7 +105,7 @@ export default function App(){
    </div>
    {ws.error&&<div role="alert" className="absolute bottom-4 right-4 z-50 max-w-lg rounded-xl border border-red-500/40 bg-[var(--panel)] p-4 text-sm text-red-400 shadow-xl"><button aria-label="关闭错误" onClick={()=>ws.setError('')} className="float-right ml-4">×</button>{ws.error}</div>}
    <EditorDialog edit={editor} onClose={closeEditor} ws={ws}/>
-   <Modal open={Boolean(pending)} onOpenChange={v=>{if(!v)setPending(null)}} title="离开当前工具？" footer={<><Button onClick={()=>setPending(null)}>继续编辑</Button><Button variant="primary" onClick={confirmNavigation}>确认离开</Button></>}><p className="text-sm muted">当前工具包含尚未导出的图片或处理结果。离开后将清除临时工作区，是否继续？</p></Modal>
+   <Modal open={Boolean(pending)} onOpenChange={v=>{if(!v)setPending(null)}} title="离开当前工具？" footer={<><Button onClick={()=>setPending(null)}>继续编辑</Button><Button variant="primary" onClick={confirmNavigation}>确认离开</Button></>}><p className="text-sm muted">当前工具存在尚未保存的配置、输入内容或未导出的处理结果。离开后可能丢失临时工作区，是否继续？</p></Modal>
   </div>
  </NotificationProvider></DialogProvider></MotionConfig></MotionPreferenceContext.Provider>
 }

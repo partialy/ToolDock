@@ -5,9 +5,8 @@ import {ToolPageIcon} from '@/components/ui/tool-page-icon'
 import { Input } from '@/components/ui/input'
 import { SelectField } from '@/components/ui/select-field'
 import { SwitchField } from '@/components/ui/switch-field'
-import { Base64Panel } from '@/components/base64/Base64Panel'
 import type {CryptoResult} from '@/types/models'
-type Kind='ssh'|'rsa'|'ecc'|'aes'|'random'|'base64'
+type Kind='ssh'|'rsa'|'ecc'|'aes'|'random'
 const alphabetSets={upper:'ABCDEFGHIJKLMNOPQRSTUVWXYZ',lower:'abcdefghijklmnopqrstuvwxyz',number:'0123456789',symbol:'!@#$%^&*_-+='}
 function download(name:string,contents:string){
  const blob=new Blob([contents],{type:'application/octet-stream'})
@@ -46,8 +45,8 @@ export function KeyGeneratorPage(){
  return <div className="mx-auto max-w-4xl space-y-6 p-8">
   <div className="flex items-center gap-3"><div className="rounded-xl bg-indigo-500/15 p-3 text-indigo-400"><ToolPageIcon size={24}/></div><div><h1 className="text-2xl font-semibold">密钥生成器</h1><p className="mt-1 text-sm muted">本地生成标准密钥，默认不保存私钥和随机密钥。</p></div></div>
   <div className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5">
-   <div className="mb-5 flex flex-wrap gap-2">{([['ssh','SSH 密钥'],['rsa','RSA 密钥'],['ecc','ECC 签名'],['aes','AES 密钥'],['random','随机字符串'],['base64','Base64 编解码']] as const).map(([k,label])=><button key={k} onClick={()=>chooseKind(k)} className={'rounded-lg px-4 py-2 text-xs font-medium transition-colors '+(kind===k?'bg-indigo-500 text-white':'bg-[var(--panel-alt)] hover:bg-[var(--hover)]')}>{label}</button>)}</div>
-   {kind==='base64' ? <Base64Panel/> : <><div className="grid gap-4 sm:grid-cols-2">
+   <div className="mb-5 flex flex-wrap gap-2">{([['ssh','SSH 密钥'],['rsa','RSA 密钥'],['ecc','ECC 签名'],['aes','AES 密钥'],['random','随机字符串']] as const).map(([k,label])=><button key={k} onClick={()=>chooseKind(k)} className={'rounded-lg px-4 py-2 text-xs font-medium transition-colors '+(kind===k?'bg-indigo-500 text-white':'bg-[var(--panel-alt)] hover:bg-[var(--hover)]')}>{label}</button>)}</div>
+   <div className="grid gap-4 sm:grid-cols-2">
     {kind==='ssh'&&<div className="space-y-2 text-xs muted"><span className="block">SSH 算法</span><SelectField ariaLabel="SSH 算法" className="w-full" value={sshKind} onValueChange={v=>{setSshKind(v as 'ed25519'|'rsa');setResult(null)}} options={[{value:'ed25519',label:'Ed25519（推荐）',description:'短密钥，适合现代 SSH'},{value:'rsa',label:'RSA',description:'兼容传统 SSH 环境'}]}/></div>}
     {(kind==='rsa'||kind==='ssh'&&sshKind==='rsa')&&<div className="space-y-2 text-xs muted"><span className="block">RSA 长度</span><SelectField ariaLabel="RSA 长度" className="w-full" value={String(bits)} onValueChange={v=>{setBits(Number(v));setResult(null)}} options={[{value:'2048',label:'2048 bit',description:'兼容性优先'},{value:'3072',label:'3072 bit（推荐）',description:'安全与效率平衡'},{value:'4096',label:'4096 bit',description:'更高强度，生成稍慢'}]}/></div>}
     {kind==='ecc'&&<div className="space-y-2 text-xs muted"><span className="block">ECDSA 曲线</span><SelectField ariaLabel="ECDSA 曲线" value={ecCurve} onValueChange={v=>{setEcCurve(v as typeof ecCurve);setResult(null)}} options={[{value:'P-256',label:'P-256 · secp256r1'},{value:'P-384',label:'P-384 · secp384r1'}]}/></div>}
@@ -60,7 +59,7 @@ export function KeyGeneratorPage(){
      <div className="space-y-2 text-xs muted"><div>字符集</div><div className="flex flex-wrap gap-3">{Object.entries(alphabetSets).map(([k,v])=><label key={k} className="flex items-center gap-1"><input type="checkbox" checked={chars[k as keyof typeof chars].length>0} onChange={e=>setChars(x=>({...x,[k]:e.target.checked?v:''}))}/>{({upper:'大写',lower:'小写',number:'数字',symbol:'符号'} as Record<string,string>)[k]}</label>)}</div></div><div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--panel-alt)] px-3 py-2"><span className="text-xs muted">排除易混淆字符（i、I、l、1、o、O、0）</span><SwitchField ariaLabel="排除易混淆字符" checked={excludeAmbiguous} onCheckedChange={setExcludeAmbiguous}/></div>
      <label className="space-y-2 text-xs muted">追加自定义字符<Input aria-label="自定义字符" value={customChars} onChange={e=>setCustomChars(e.target.value)} maxLength={512} placeholder="例如 ~#%"/></label></>}
    </div>
-   <div className="mt-6 flex items-center justify-between"><span className="flex items-center gap-2 text-xs muted"><ShieldCheck size={15}/> 密码学安全随机源</span><Button variant="primary" onClick={()=>void gen()} disabled={busy}><RefreshCw size={16} className={busy?'animate-spin':''}/>{busy?'生成中...':'生成密钥'}</Button></div></>}
+   <div className="mt-6 flex items-center justify-between"><span className="flex items-center gap-2 text-xs muted"><ShieldCheck size={15}/> 密码学安全随机源</span><Button variant="primary" onClick={()=>void gen()} disabled={busy}><RefreshCw size={16} className={busy?'animate-spin':''}/>{busy?'生成中...':'生成密钥'}</Button></div>
   </div>
   {result&&<div className="space-y-4 rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5">
    <h2 className="mb-3 font-medium">{kind==='aes'?result.info.replace('Hex',aesFormat):result.info}</h2>

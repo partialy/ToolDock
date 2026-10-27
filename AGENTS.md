@@ -14,7 +14,7 @@
 - 每次修改先运行 npm run typecheck、npm test、npm run build。构建安装包时避免覆盖仍在运行的 release/win-unpacked。
 - 提交信息格式：【模块】【功能】具体变更说明。不得把 node_modules/、out/、release/、plans/、用户数据提交到 Git。
 
-- Base64/JSON 工具保持纯本地处理，不在 IPC、SQLite 或日志中记录输入文本；Base64 不新增独立侧栏入口。
+- Base64/JSON/编解码工具保持纯本地处理，不在 IPC、SQLite 或日志中记录输入文本；Base64 已由密钥生成器迁移至独立「编解码」工具，AES 密钥输出的 Base64 格式仍保留。
 - 内置工具身份集中于 src/shared/builtinToolRegistry.ts，新增工具须同步实现 SQLite 版本化迁移和测试；迁移不可复活用户已删除的 developer 分类。
 - JSON 无损转换位于 src/lib/json，禁止直接通过 JSON.parse -> JSON.stringify 处理待格式化/排序的原文，以免数值精度和重复键丢失。
 - 大 JSON 在 src/workers/json.worker.ts 解析，React UI 不做同步重量级 AST 遍历；超出限制时显示错误，保留源数据，不执行危险操作。
@@ -24,7 +24,7 @@
 - 新图片工具处理必须保持纯本地、安全 SVG 栅格化、独立 Worker 受控处理和有权限边界的保存 IPC；图片及密钥内容不得写入 SQLite/日志。
 - 新增内置工具沿用 src/shared/builtinToolRegistry.ts、版本化 SQLite 迁移；不覆盖用户已修改或删除的分类与工具状态。
 
-- 图片编码内置工具仅允许 PNG/JPEG/WebP/GIF/BMP/ICO 的二进制无损 Base64 往返；禁止把图片字节送到 src/lib/base64.ts（该文件只供 2 MiB UTF-8 文本使用）。转换需在独立 image-encoding Worker 中完成，限制 20 MiB 文件和 30 MiB 文本，严格检验魔数与 Data URL MIME，不引入二维码。
+- 图片编码内置工具仅允许 PNG/JPEG/WebP/GIF/BMP/ICO 的二进制无损 Base64 往返；禁止把图片字节送到 src/lib/base64.ts（公开 API 的 UTF-8 文本上限为 2 MiB；编解码 Worker 允许受控内部 8 MiB 上限）。转换需在独立 image-encoding Worker 中完成，限制 20 MiB 文件和 30 MiB 文本，严格检验魔数与 Data URL MIME，不引入二维码。
 - 日期/时间弹层通过 PickerPopoverContent 统一 Motion 进出动画，月份切换遵循方向；Normal/Reduced/Off 与系统无障碍设置优先。严禁新增原生 date/time 选择浮层。
 - 数据库 v4 只增加 builtin-image-encoding，不更改既有内置工具 ID、不重建用户已删除的类别；确认当前 feat/image-devtools-integration 分支未提交修改后再操作。
 

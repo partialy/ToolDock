@@ -46,7 +46,7 @@ npm run dist
 
 ## Base64 与 JSON 工具（2026-10-25）
 
-- **密钥生成器 → Base64 编解码**：UTF-8 标准 Base64 与 Base64URL、保留/移除填充、自动识别解码、严格尾部位/UTF-8 校验；左右实时转换与复制。
+- **编解码 → Base64 编解码**：原密钥生成器 Base64 标签已迁移到独立「编解码」工具，保留 UTF-8 标准 Base64 / Base64URL、填充开关、自动识别解码与严格 UTF-8 校验；密钥生成器中的 AES Base64 密钥输出保持不变。
 - **JSON 处理**：内置 `builtin-json-tool`，默认归入「开发工具」；CodeMirror 6 原文/结果编辑器、严格 JSON 校验、重复 Key 提示、格式化/压缩/递归排序、字符串转义/反转义、JSONPath 树形搜索、完整节点复制与 JSON 文件导入导出。
 - JSON 解析与转换在 Vite Worker 中执行；结果带来源修订号，取消通过终止并重建 Worker 实现。默认单个 JSON 输入限制 20 MiB，Base64 文本输入 2 MiB；所有原文仅保留在页面会话内存中。
 - JSON 格式化/排序使用 AST 与原始 token 切片，**不通过 JSON.parse → JSON.stringify 重新序列化**，以保留超大整数、高精度小数和原始字符串字面量；重复 Key 阻止可能误导的变换。
@@ -57,7 +57,7 @@ npm run dist
 
 - 新增「图片工具」分类：图片处理（JPEG/PNG/WebP 上传、缩放、压缩、格式转换、交互式裁剪、原图/结果预览、批量处理与 ZIP 导出）；Logo / ICO 生成（SVG/PNG/JPEG/WebP 输入、9 种尺寸、PNG/JPEG/WebP、标准多帧 ICO）。
 - 新增「时间转换」与「UUID 生成」工具。时间转换支持自动判定 10/13 位 Unix 时间戳、显式秒/毫秒、UTC/local/ISO、自定义日期日历及 24 小时时分秒选择面板。UUID 支持批量生成、格式选项、复制和 TXT 下载。
-- 密钥生成器原有 SSH、RSA、AES、Base64 不改变；新增 ECDSA P-256/P-384，以及随机串自定义字符、快捷长度和每字符类别至少出现一次。
+- 密钥生成器原有 SSH、RSA、AES 保持兼容（Base64 编解码后来已迁至独立「编解码」工具）；新增 ECDSA P-256/P-384，以及随机串自定义字符、快捷长度和每字符类别至少出现一次。
 - 自定义选择器统一使用 ToolDock 现有主题变量、Radix 浮层、圆角、边框和键盘焦点设计，不使用浏览器原生日期时间弹出面板。
 - 图片在本地处理：优先通过独立 Image Worker 执行缩放/编码；SVG 仅在安全校验后本地栅格化；ICO 使用 PNG 帧封装；导出经受限 IPC 在系统保存对话框指定位置流式落盘（ZIP 使用 fflate）。
 - 单张文件 50 MiB、每批 100 张/300 MiB、解码不超过 4000 万像素、输出单边不超过 8192px 且最多 4000 万像素；结果暂存在页面内存中，参数变化后必须重新生成；未导出时切换页面有确认提示。
@@ -91,3 +91,12 @@ npm run dist
 - 文件支持单侧导入、复制、交换和清空；对比结果使用 Worker 和虚拟列表。单侧最大 2 MiB / 10000 行；超多差异会保守合并为整段变化，避免冻结页面。
 - 输入与结果纯内存处理，不使用 IPC 和 SQLite 保存正文；SQLite v7 仅注册工具入口，不覆盖既有分类与用户修改。
 - 验收通过 npm run typecheck、npm test（89 测试）、npm run build 及隔离 APPDATA 的 Electron E2E 测试。设计与测试记录见 plans/TEXT_JSON_DIFF_IMPLEMENTATION.md。
+
+## 独立「编解码」工具（2026-10-27）
+
+- 新增内置「编解码」工具（`builtin-codec-tool`），提供 Base64、URL（组件/URI/Form）、Unicode（JS/ES6/U+）、Hex、HTML Entity、JSON 字符串转义及 Binary 的本地双向转换。
+- 默认单步双栏模式，多步模式支持最多 20 个可独立配置的步骤，支持拖拽排序、复制、停用、失败定位、阶段结果查看与六套常用转换模板。
+- 输入限制 2 MiB，单步输出限制 8 MiB，使用 Worker 运行并取消过期任务；非法 UTF-8、百分号转义和不完整 Unicode 等均按严格规则报错，不静默替换内容。
+- SQLite v8 新增 `codec_pipelines` 表及 `codecPipelines` 受限 IPC，可保存最多 200 份独立流水线配置，支持命名、保存修改、另存为、复制、搜索、删除和配置 JSON 导入导出。**只持久化流程步骤和参数，不持久化用户输入、结果或中间文本。**
+- 密钥生成器中的旧 Base64 Tab 已移除；AES 密钥的 Base64 / Base64URL 输出不受影响。新增工具默认位于「开发工具」，内置工具身份/用户自定义排序与显隐遵循原有规则。
+- 设计及验收记录见被 Git 忽略的 `plans/CODEC_PIPELINE_IMPLEMENTATION.md`。
