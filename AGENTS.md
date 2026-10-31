@@ -35,3 +35,8 @@
 - 文本 / JSON 差异对比固定内置 ID 为 builtin-text-diff、路由 text-diff；通过 SQLite v7 增量注册，不恢复已删除的开发分类，不修改用户工具名称、位置、图标或可见性。编辑采用 CodeMirror，比较使用独立 diff.worker.ts 与虚拟行列表。输入仅在当前页内存保留，不写入数据库、IPC 或日志。JSON 对象键忽略排序使用现有无损 AST 变换，数组顺序不忽略，重复键拒绝比较；单侧限制 2 MiB / 10000 行，超高差异编辑距离安全降级整段显示。
 - 命令执行工具固定内置 ID builtin-command-tool，路由 command-tool，SQLite v9 增量注册且不更改已有类别/工具配置。仅开放固定 IPC（查询本地端口、核验后结束选定 PID、选择/校验/创建 Junction 与打开目录），不可提供任意命令或脚本执行，禁止自动提权、进程树结束和未经确认的危险操作。
 - 端口查询允许 TCP/UDP IPv4/IPv6，结束进程重新核验启动时间/身份/端口归属，并保护系统/ToolDock 进程；Junction 不覆盖/移动/删除既有文件夹，严格校验绝对路径和环路。输出、进程/路径信息仅驻留当前 UI 会话，不持久化或记录日志。
+
+- 快捷启动按 plans/QUICK_LAUNCH_IMPLEMENTATION.md 在 feat/quick-launch 开发。2026-10-31 用户最新决定“实现整个计划，我来验收”，覆盖此前阶段 0 验收阻断后续开发的限制；完整实现继续推进，未实测的 UAC/跨账户/窗口等场景保留为用户验收项，禁止标记已通过。
+- 快捷启动与既有命令执行工具保持独立边界；不得扩展 commands:* 为任意命令入口。快捷启动使用独立 quickLaunch:* IPC、SQLite v10 的 App/分组及独立 Windows Runner；命令、脚本和控制台输出不得进入诊断日志。
+- 快捷启动托管资源在 tools/quick-launch/apps，运行身份与控制凭据在 tools/quick-launch/runtime；备份排除 runtime，恢复拒绝导入运行身份。运行中/状态未知时锁定配置，阻止迁移、恢复和旧副本清理；停止仅作用于认证 Runner 持有的 Job。
+- 正式 Runner 源码在 native/quick-launch-runner，使用 .NET 10 self-contained win-x64；开发先执行 npm run build:runner，npm run dist 自动构建 Runner。构建产物不提交，通过 extraResources 打包；重建前停止仍使用该二进制的任务。运行输出只在内存保留，任务元数据轮询不重复传输 App 配置和图标；详细模块/验收说明见 docs/quick-launch.md。

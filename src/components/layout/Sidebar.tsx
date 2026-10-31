@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useMemo, useState } from 'react'
-import { PanelLeftClose, PanelLeftOpen, Search, ChevronDown, MoreHorizontal, Settings, Grid3X3, House, Plus, Blocks, Info } from 'lucide-react'
+import { PanelLeftClose, PanelLeftOpen, Search, ChevronDown, MoreHorizontal, Settings, Grid3X3, House, Plus, Blocks, Info, Zap } from 'lucide-react'
 import { Icon } from '@/components/ui/icon'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -25,6 +25,7 @@ export function Sidebar({ws,active,onGo,onEditCat,onEditTool,onAdd,collapsed,set
   <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
    <nav aria-label="系统导航" className="space-y-1 pb-3">
     <button onClick={()=>onGo('home')} title="工作台" className={'flex h-9 w-full items-center gap-3 rounded-lg px-3 text-left hoverable '+(active==='home'?'bg-[var(--selected)] text-[var(--primary)]':'')}><House size={17}/>{!collapsed&&<span>工作台</span>}</button>
+    <button onClick={()=>onGo('quick-launch')} title="快捷启动" className={'flex h-9 w-full items-center gap-3 rounded-lg px-3 text-left hoverable '+(active==='quick-launch'?'bg-[var(--selected)] text-[var(--primary)]':'')}><Zap size={17}/>{!collapsed&&<span>快捷启动</span>}</button>
    </nav>
    {!collapsed&&<div className="mb-2 flex items-center justify-between px-3 text-[11px] font-semibold tracking-widest muted">工具分类 <button aria-label="新增工具" onClick={onAdd} title="新增工具"><Plus size={15}/></button></div>}
    <nav aria-label="工具列表" className="space-y-1">

@@ -1,0 +1,52 @@
+import {useEffect,useRef,useState,type ReactNode} from 'react'
+import {FolderOpen,ImagePlus,FileCode2} from 'lucide-react'
+import {DialogShell} from '@/components/ui/dialog-shell'
+import {useDialog} from '@/components/ui/dialog-provider'
+import {Button} from '@/components/ui/button'
+import {Input} from '@/components/ui/input'
+import {SelectField} from '@/components/ui/select-field'
+import {SwitchField} from '@/components/ui/switch-field'
+import {ICONS,Icon} from '@/components/ui/icon'
+import {quickLaunchInputSchema,type QuickLaunchApp,type QuickLaunchEnvironment,type QuickLaunchGroup,type QuickLaunchInput,type QuickLaunchResource,type QuickLaunchSave} from '@/shared/quickLaunchModels'
+
+const initial:QuickLaunchInput={name:'',description:'',groupId:'ungrouped',iconKind:'lucide',iconValue:'terminal',shell:'powershell',psFlavor:'windows',sourceKind:'inline',inlineContent:'',workingDirectory:'',silent:true,runAsAdmin:false,confirmBeforeRun:false,confirmTitle:'提示',confirmMessage:'确认运行吗？',confirmAccept:'确认',confirmCancel:'取消',visible:true}
+function editableData(app:QuickLaunchApp|null):QuickLaunchInput{
+ if(!app)return {...initial}
+ return Object.fromEntries(Object.keys(initial).map(key=>[key,app[key as keyof QuickLaunchInput & keyof QuickLaunchApp]])) as QuickLaunchInput
+}
+function Field({title,children}:{title:string;children:ReactNode}){return <label className="block space-y-2"><span className="text-xs font-medium">{title}</span>{children}</label>}
+function Toggle({title,description,checked,onChange}:{title:string;description:string;checked:boolean;onChange:(v:boolean)=>void}){return <div className="flex items-center justify-between gap-4 rounded-xl bg-[var(--panel-alt)] p-3"><div><p className="text-xs font-medium">{title}</p><p className="mt-1 text-xs leading-5 muted">{description}</p></div><SwitchField checked={checked} ariaLabel={title} onCheckedChange={onChange}/></div>}
+export function QuickLaunchEditorDialog({app,groups,environment,locked,onClose,onSave}:{app:QuickLaunchApp|null;groups:QuickLaunchGroup[];environment:QuickLaunchEnvironment;locked:boolean;onClose:()=>void;onSave:(v:QuickLaunchSave)=>Promise<boolean>}){
+ const dialog=useDialog(),[data,setData]=useState<QuickLaunchInput>(()=>editableData(app)),[saving,setSaving]=useState(false),[error,setError]=useState(''),[resourceBusy,setResourceBusy]=useState(false)
+ const [script,setScript]=useState<QuickLaunchResource|null>(null),[icon,setIcon]=useState<QuickLaunchResource|null>(null)
+ const confirmationTouched=useRef(!!app&&app.confirmMessage!==`确认运行${app.name}吗？`),baseline=useRef(JSON.stringify(editableData(app))),saveLock=useRef(false)
+ const dirty=JSON.stringify(data)!==baseline.current||!!script||!!icon
+ useEffect(()=>{window.dispatchEvent(new CustomEvent('tooldock:unsaved',{detail:dirty}));return()=>{window.dispatchEvent(new CustomEvent('tooldock:unsaved',{detail:false}))}},[dirty])
+ const set=<K extends keyof QuickLaunchInput>(key:K,value:QuickLaunchInput[K])=>setData(old=>({...old,[key]:value,...(key==='name'&&!confirmationTouched.current?{confirmMessage:`确认运行${String(value)}吗？`}:{})}))
+ const close=async()=>{if(saving||resourceBusy)return;if(!dirty||await dialog.confirm({title:'放弃未保存的修改？',description:'当前 App 的修改尚未保存。',confirmText:'放弃修改',cancelText:'继续编辑',variant:'warning'}))onClose()}
+ const choose=async(kind:'script'|'icon'|'directory')=>{if(resourceBusy)return;setResourceBusy(true);setError('');try{if(kind==='script'){const value=await window.toolDock.quickLaunch.chooseScript(data.shell);if(value)setScript(value)}else if(kind==='icon'){const value=await window.toolDock.quickLaunch.chooseIcon();if(value){setIcon(value);set('iconKind','managed')}}else{const value=await window.toolDock.quickLaunch.chooseWorkingDirectory();if(value)set('workingDirectory',value)}}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setResourceBusy(false)}}
+ const submit=async()=>{
+  if(saveLock.current||locked||resourceBusy)return
+  const parsed=quickLaunchInputSchema.safeParse({...data,...(script?{scriptToken:script.token}:{}),...(icon?{iconToken:icon.token}:{})})
+  if(!parsed.success){setError(parsed.error.issues.map(x=>x.message).join('；'));return}
+  if(parsed.data.sourceKind==='file'&&!script&&!app?.managedScript){setError('请选择需要托管的脚本文件');return}
+  if(parsed.data.iconKind==='managed'&&!icon&&app?.iconKind!=='managed'){setError('请选择图标图片');return}
+  saveLock.current=true;setSaving(true);setError('')
+  try{if(await onSave({...(app?{id:app.id,expectedRevision:app.revision}:{}),data:parsed.data}))onClose();else setError('保存失败。请检查 App 是否已被修改、运行状态及资源是否仍可用后重试。')}finally{saveLock.current=false;setSaving(false)}
+ }
+ return <DialogShell open onOpenChange={v=>{if(!v)void close()}} title={app?'编辑 App':'新增 App'} description="保存的命令和脚本将在本机执行。请仅使用可信内容，避免在命令中存放敏感凭据。" width="workspace" dismissible={!saving&&!resourceBusy} footer={<><Button disabled={saving} onClick={()=>void close()}>取消</Button><Button variant="primary" disabled={saving||resourceBusy||locked} onClick={()=>void submit()}>{saving?'保存中…':'保存 App'}</Button></>}>
+  {locked&&<p role="alert" className="mb-4 text-sm text-amber-500">该 App 正在执行或身份未知，暂时不能修改。请先停止或在详情中重新检测。</p>}
+  <fieldset disabled={locked||saving} className="space-y-6 disabled:opacity-60">
+   <section className="space-y-4"><h3 className="text-sm font-semibold">基本信息</h3><div className="grid gap-4 md:grid-cols-2"><Field title="名称"><Input autoFocus maxLength={80} value={data.name} onChange={e=>set('name',e.target.value)} placeholder="App 名称"/></Field><Field title="所属分组"><SelectField ariaLabel="所属分组" value={data.groupId} options={groups.map(g=>({value:g.id,label:g.name}))} onValueChange={v=>set('groupId',v)}/></Field></div>
+    <Field title="描述"><Input maxLength={500} value={data.description} onChange={e=>set('description',e.target.value)} placeholder="悬浮卡片时显示"/></Field>
+    <div className="flex flex-wrap items-end gap-3"><Field title="预设图标"><SelectField ariaLabel="预设图标" value={data.iconKind==='lucide'?data.iconValue:'managed'} options={[...(data.iconKind==='managed'?[{value:'managed',label:'自定义图标'}]:[]),...Object.keys(ICONS).map(k=>({value:k,label:k,icon:<Icon name={k}/>}))]} onValueChange={v=>{if(v!=='managed'){setIcon(null);setData(d=>({...d,iconKind:'lucide',iconValue:v}))}}}/></Field><Button disabled={resourceBusy} onClick={()=>void choose('icon')}><ImagePlus size={16}/> 上传图标</Button><span className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg bg-[var(--selected)] p-1">{data.iconKind==='managed'&&(icon?.preview||app?.iconDataUrl)?<img src={icon?.preview||app?.iconDataUrl} alt="图标预览" className="h-full w-full object-contain"/>:<Icon name={data.iconValue} size={24}/>}</span><span className="text-xs muted">PNG / JPEG / WebP / SVG · 最大 2 MiB</span></div>
+   </section>
+   <section className="space-y-4 border-t border-[var(--border)] pt-5"><h3 className="text-sm font-semibold">执行配置</h3><div className="grid gap-4 md:grid-cols-3"><Field title="执行类型"><SelectField ariaLabel="执行类型" value={data.shell} options={[{value:'powershell',label:'PowerShell'},{value:'cmd',label:'CMD'}]} onValueChange={v=>{setScript(null);setData(d=>({...d,shell:v as 'powershell'|'cmd',sourceKind:d.sourceKind==='file'&&app?.shell!==v?'inline':d.sourceKind}))}}/></Field>{data.shell==='powershell'&&<Field title="PowerShell 环境"><SelectField ariaLabel="PowerShell 环境" value={data.psFlavor} options={[{value:'windows',label:'Windows PowerShell 5.1',disabled:!environment.windowsPowerShell},{value:'pwsh',label:'PowerShell 7',disabled:!environment.pwsh}]} onValueChange={v=>set('psFlavor',v as 'windows'|'pwsh')}/></Field>}<Field title="执行来源"><SelectField ariaLabel="执行来源" value={data.sourceKind} options={[{value:'inline',label:'多行命令文本'},{value:'file',label:'托管脚本文件'}]} onValueChange={v=>set('sourceKind',v as 'inline'|'file')}/></Field></div>
+    {data.sourceKind==='inline'?<Field title="命令内容"><textarea value={data.inlineContent} onChange={e=>set('inlineContent',e.target.value)} spellCheck={false} aria-label="命令内容" rows={8} className="w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--panel-alt)] p-3 font-mono text-xs outline-none focus:border-[var(--primary)]" placeholder={data.shell==='cmd'?'echo Hello':'Write-Output "Hello"'}/><span className="text-xs muted">支持多行及系统环境变量，最多 64 KiB。</span></Field>:<div className="space-y-2 rounded-xl bg-[var(--panel-alt)] p-4"><div className="flex flex-wrap items-center gap-3"><Button disabled={resourceBusy} onClick={()=>void choose('script')}><FileCode2 size={16}/> {script||app?.managedScript?'更换脚本':'选择脚本'}</Button><span className="break-all text-xs">{script?.name||app?.scriptName||'未选择脚本'}</span></div><p className="text-xs leading-5 muted">仅复制选定的单个脚本（最大 5 MiB），不会复制旁边的依赖文件。托管后 $PSScriptRoot 和相对路径可能变化，请设置工作目录或使用绝对路径。</p></div>}
+    <Field title="工作目录（可留空）"><div className="flex gap-2"><Input maxLength={4096} value={data.workingDirectory} onChange={e=>set('workingDirectory',e.target.value)} placeholder={data.sourceKind==='inline'?'默认：用户主目录':'默认：托管脚本所在目录'}/><Button disabled={resourceBusy} onClick={()=>void choose('directory')} aria-label="选择工作目录"><FolderOpen size={16}/></Button></div></Field>
+    <div className="grid gap-3 md:grid-cols-2"><Toggle title="静默执行" description="隐藏终端窗口，在运行详情中查看输出。关闭后使用原生终端。" checked={data.silent} onChange={v=>set('silent',v)}/><Toggle title="管理员权限" description="每次启动由 Windows 请求 UAC 授权，ToolDock 自身不提权。" checked={data.runAsAdmin} onChange={v=>set('runAsAdmin',v)}/></div>
+   </section>
+   <section className="space-y-4 border-t border-[var(--border)] pt-5"><h3 className="text-sm font-semibold">启动确认</h3><Toggle title="运行前询问" description="启动前显示自定义确认内容。" checked={data.confirmBeforeRun} onChange={v=>set('confirmBeforeRun',v)}/>{data.confirmBeforeRun&&<div className="grid gap-4 md:grid-cols-2"><Field title="确认标题"><Input maxLength={500} value={data.confirmTitle} onChange={e=>set('confirmTitle',e.target.value)}/></Field><Field title="确认内容"><Input maxLength={500} value={data.confirmMessage} onChange={e=>{confirmationTouched.current=true;set('confirmMessage',e.target.value)}}/></Field><Field title="确认按钮"><Input maxLength={500} value={data.confirmAccept} onChange={e=>set('confirmAccept',e.target.value)}/></Field><Field title="取消按钮"><Input maxLength={500} value={data.confirmCancel} onChange={e=>set('confirmCancel',e.target.value)}/></Field></div>}</section>
+  </fieldset>{error&&<p role="alert" className="mt-4 text-sm text-red-400">{error}</p>}
+ </DialogShell>
+}

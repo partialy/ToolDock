@@ -29,6 +29,10 @@ export function SettingsPage({ws}:{ws:Workspace}){
    <SettingRow title="应用内通知位置" description="通知可显示在四个角落，默认右下角；不影响 Windows 系统通知的位置。"><SelectField value={ws.settings.notificationPosition} ariaLabel="通知位置" onValueChange={v=>void ws.setPreference('notificationPosition',v as typeof ws.settings.notificationPosition)} options={[{value:'bottom-right',label:'右下角（默认）'},{value:'bottom-left',label:'左下角'},{value:'top-right',label:'右上角'},{value:'top-left',label:'左上角'}]} className="min-w-[148px]"/></SettingRow>
    <SettingRow title="显示默认分类标记" description="在默认分类名称末尾显示“默认”Tag，分类名称仍然可以自定义。"><SwitchField checked={ws.settings.showDefaultTag} ariaLabel="显示默认分类标记" onCheckedChange={v=>void ws.setPreference('showDefaultTag',v)}/></SettingRow>
   </section>
+  <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5"><h2 className="mb-2 text-sm font-semibold">快捷启动</h2>
+   <SettingRow title="App 启动方式" description="单击模式直接运行；双击模式单击选择，双击或 Enter 运行。"><SelectField value={ws.settings.quickLaunchTrigger} ariaLabel="App 启动方式" onValueChange={v=>void ws.setPreference('quickLaunchTrigger',v as 'single'|'double')} options={[{value:'single',label:'单击启动（默认）'},{value:'double',label:'双击启动'}]}/></SettingRow>
+   <SettingRow title="退出时自动停止任务" description="默认关闭，退出 ToolDock 后任务继续。开启后正常退出会尝试停止已核验的受控任务；异常退出或身份未知时无法保证全部停止。"><SwitchField checked={ws.settings.quickLaunchStopOnExit} ariaLabel="退出时自动停止任务" onCheckedChange={v=>void ws.setPreference('quickLaunchStopOnExit',v)}/></SettingRow>
+  </section>
   <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5"><h2 className="mb-2 flex items-center gap-2 text-sm font-semibold"><ShieldCheck size={17}/> 网页安全</h2>
    <SettingRow title="允许加载 HTTP 网页" description="默认关闭。开启后允许非加密 HTTP，但不会向外部网页开放 Electron/Node.js 权限；localhost 始终允许。"><SwitchField checked={ws.settings.allowHttp} ariaLabel="允许加载 HTTP 网页" onCheckedChange={v=>void ws.setPreference('allowHttp',v)}/></SettingRow>
   </section>

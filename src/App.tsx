@@ -13,6 +13,7 @@ import { useWorkspace } from '@/store/useWorkspace'
 import { HomePage } from '@/pages/HomePage'
 import { ManagerPage } from '@/pages/ManagerPage'
 import { SettingsPage } from '@/pages/SettingsPage'
+import { QuickLaunchPage } from '@/pages/QuickLaunchPage'
 import { KeyGeneratorPage } from '@/pages/KeyGeneratorPage'
 import { JsonToolPage } from '@/pages/JsonToolPage'
 import { TextDiffPage } from '@/pages/TextDiffPage'
@@ -63,7 +64,7 @@ export default function App(){
  useEffect(()=>{const listener=(e:Event)=>setUnsaved(Boolean((e as CustomEvent<boolean>).detail));window.addEventListener('tooldock:unsaved',listener);return()=>window.removeEventListener('tooldock:unsaved',listener)},[])
  const active=history[position]||'home'
  const tool=active.startsWith('tool:')?ws.tools.find(t=>t.id===active.slice(5)):undefined
- const title=tool?.name||({home:'工作台',manager:'工具管理',settings:'设置',about:'关于'} as Record<string,string>)[active]||'ToolDock'
+ const title=tool?.name||({home:'工作台','quick-launch':'快捷启动',manager:'工具管理',settings:'设置',about:'关于'} as Record<string,string>)[active]||'ToolDock'
  const commitNavigation=useCallback((destination:string)=>{
   if(destination===active)return
   setHistory(prev=>[...prev.slice(0,position+1),destination].slice(-60))
@@ -84,6 +85,7 @@ export default function App(){
   if(active==='home')return <HomePage ws={ws} onGo={navigate} onAdd={()=>openEditor({kind:'tool'})}/>
   if(active==='manager')return <ManagerPage ws={ws} onEdit={openEditor}/>
   if(active==='settings')return <SettingsPage ws={ws}/>
+  if(active==='quick-launch')return <QuickLaunchPage trigger={ws.settings.quickLaunchTrigger}/>
   if(active==='about')return <div className="mx-auto max-w-3xl p-12"><div className="mb-4 flex items-center gap-3"><Blocks size={32} className="text-indigo-400"/><h1 className="text-2xl font-semibold">ToolDock</h1></div><p className="mb-5 text-sm muted">桌面工具聚合平台 · v0.1.0</p><p className="text-sm leading-8 muted">React + Electron + shadcn/ui + Tailwind CSS + Motion + SQLite。将常用网页与开发工具集中在一个独立工作区。</p></div>
   if(tool?.type==='link')return <WebTool key={tool.id} toolId={tool.id}/>
   if(tool?.type==='internal'&&builtinByTarget(tool.target)){
