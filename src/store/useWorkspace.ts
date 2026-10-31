@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type {Category,Tool,Settings} from '@/types/models'
 import {TRANSFER_DEFAULTS} from '@/shared/fileTransferModels'
-const initialSettings:Settings={theme:'dark',motion:'normal',showDefaultTag:true,allowHttp:false,sidebarWidth:252,notificationPosition:'bottom-right',fileTransferPrefs:TRANSFER_DEFAULTS}
+const initialSettings:Settings={theme:'dark',motion:'normal',showDefaultTag:true,allowHttp:false,sidebarWidth:252,notificationPosition:'bottom-right',fileTransferPrefs:TRANSFER_DEFAULTS,quickLaunchTrigger:'single',quickLaunchStopOnExit:false}
 export function useWorkspace(){
  const [categories,setCategories]=useState<Category[]>([])
  const [tools,setTools]=useState<Tool[]>([])

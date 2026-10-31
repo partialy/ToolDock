@@ -7,6 +7,7 @@ import { migrateFileTransfer } from './migrations/006-add-file-transfer'
 import { migrateTextDiff } from './migrations/007-add-text-diff'
 import { migrateCodecPipelines } from './migrations/008-add-codec-pipelines'
 import { migrateCommandTool } from './migrations/009-add-command-tool'
+import { migrateQuickLaunch } from './migrations/010-add-quick-launch'
 import {TRANSFER_DEFAULTS} from '../../../src/shared/fileTransferModels'
 import { builtinById, builtinByTarget } from '../../../src/shared/builtinToolRegistry'
 import { app } from 'electron'
@@ -17,7 +18,7 @@ import type { Category, Tool, Settings, DataInfo } from '../../../src/types/mode
 
 let db: Database
 let dataRoot = ''
-const defaultPrefs: Settings = { theme: 'dark', motion: 'normal', showDefaultTag: true, allowHttp: false, sidebarWidth: 252,notificationPosition:'bottom-right',fileTransferPrefs:TRANSFER_DEFAULTS }
+const defaultPrefs: Settings = { theme: 'dark', motion: 'normal', showDefaultTag: true, allowHttp: false, sidebarWidth: 252,notificationPosition:'bottom-right',fileTransferPrefs:TRANSFER_DEFAULTS,quickLaunchTrigger:'single',quickLaunchStopOnExit:false }
 const bootstrapFile = () => path.join(app.getPath('userData'), 'bootstrap.json')
 export const defaultDataRoot = () => path.join(app.getPath('userData'), 'data')
 export function getDataRoot() { return dataRoot }
@@ -59,6 +60,7 @@ export function initStore() {
   migrateTextDiff(db)
   migrateCodecPipelines(db)
   migrateCommandTool(db)
+  migrateQuickLaunch(db)
 }
 export function closeStore() { if(db?.open) { db.pragma('wal_checkpoint(TRUNCATE)'); db.close() } }
 const asCategory=(r:Record<string,unknown>):Category=>({id:String(r.id),name:String(r.name),icon:String(r.icon),sortOrder:Number(r.sort_order),visible:Boolean(r.visible),isSystem:Boolean(r.is_system)})
@@ -117,6 +119,8 @@ export function getSettings():Settings {
  const result:Record<string,unknown>={...defaultPrefs}
  rows.forEach(row=>{if(row.key in defaultPrefs)try{result[row.key]=JSON.parse(row.value_json)}catch{}})
  if(!['top-left','top-right','bottom-left','bottom-right'].includes(String(result.notificationPosition)))result.notificationPosition='bottom-right'
+ if(result.quickLaunchTrigger!=='single'&&result.quickLaunchTrigger!=='double')result.quickLaunchTrigger='single'
+ if(typeof result.quickLaunchStopOnExit!=='boolean')result.quickLaunchStopOnExit=false
  const raw=result.fileTransferPrefs
  const input=raw&&typeof raw==='object'&&!Array.isArray(raw)?raw as Record<string,unknown>:{}
  const prefs={...TRANSFER_DEFAULTS}
@@ -137,6 +141,9 @@ export function getSettings():Settings {
  return result as unknown as Settings
 }
 export function putSetting(key:keyof Settings,value:Settings[keyof Settings]):Settings {
+ if(!(key in defaultPrefs))throw Error('未知设置项')
+ if(key==='quickLaunchTrigger'&&value!=='single'&&value!=='double')throw Error('无效启动方式')
+ if(key==='quickLaunchStopOnExit'&&typeof value!=='boolean')throw Error('无效退出设置')
  db.prepare('INSERT INTO settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json').run(key,JSON.stringify(value))
  return getSettings()
 }
