@@ -64,7 +64,7 @@ export function SelectField({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ duration: off ? 0 : reduced ? 0.08 : 0.18, ease: [0.22, 1, 0.36, 1] }}
             className={cn(
-              'z-[250] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-2xl',
+              'z-[350] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-2xl',
               'border border-[var(--border)] bg-[var(--panel)] p-1.5 text-[var(--foreground)]',
               'shadow-[0_18px_50px_rgba(0,0,0,0.22)] ring-1 ring-white/5',
             )}
