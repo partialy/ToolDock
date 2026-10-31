@@ -33,3 +33,5 @@
 - 所有应用内普通/危险操作使用 DialogProvider/useDialog 或 DialogShell，禁止 window.confirm、window.alert、window.prompt。危险操作默认聚焦取消；异步 confirmAction 禁止重复触发。Electron 原生打开/保存文件窗及备份恢复主进程最终安全确认保留不替换。
 
 - 文本 / JSON 差异对比固定内置 ID 为 builtin-text-diff、路由 text-diff；通过 SQLite v7 增量注册，不恢复已删除的开发分类，不修改用户工具名称、位置、图标或可见性。编辑采用 CodeMirror，比较使用独立 diff.worker.ts 与虚拟行列表。输入仅在当前页内存保留，不写入数据库、IPC 或日志。JSON 对象键忽略排序使用现有无损 AST 变换，数组顺序不忽略，重复键拒绝比较；单侧限制 2 MiB / 10000 行，超高差异编辑距离安全降级整段显示。
+- 命令执行工具固定内置 ID builtin-command-tool，路由 command-tool，SQLite v9 增量注册且不更改已有类别/工具配置。仅开放固定 IPC（查询本地端口、核验后结束选定 PID、选择/校验/创建 Junction 与打开目录），不可提供任意命令或脚本执行，禁止自动提权、进程树结束和未经确认的危险操作。
+- 端口查询允许 TCP/UDP IPv4/IPv6，结束进程重新核验启动时间/身份/端口归属，并保护系统/ToolDock 进程；Junction 不覆盖/移动/删除既有文件夹，严格校验绝对路径和环路。输出、进程/路径信息仅驻留当前 UI 会话，不持久化或记录日志。

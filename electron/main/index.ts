@@ -1,10 +1,13 @@
-import { app, BrowserWindow, dialog, ipcMain, screen } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
 import { initStore, closeStore, listCategories, saveCategory, removeCategory, reorderCategories, listTools, saveTool, removeTool, reorderTools, getSettings, putSetting, getDataInfo, getDb } from './database/store'
 import {listCodecPipelines,getCodecPipeline,createCodecPipeline,updateCodecPipeline,duplicateCodecPipeline,removeCodecPipeline} from './database/codec-pipelines'
 import {pipelineInputSchema} from '../../src/shared/codecModels'
+import {portSchema,killSchema,junctionSchema} from '../../src/shared/commandModels'
+import {queryPort,terminatePortProcess} from './services/command-port'
+import {previewJunction,createJunction} from './services/command-junction'
 import { allowedUrl, openWebview, removeWebview, setWebBounds, hideWebview, showWebview, reloadWebview, clearWebData } from './views/webviews'
 import { initMarker, chooseDataFolder, migrateData, deleteOldData, openDataFolder, backupData, restoreData } from './services/data'
 import { generateRsa, generateSsh, generateEc, generateAes, generateRandom } from './services/crypto'
@@ -30,6 +33,18 @@ const toolInput=z.object({id:z.string().optional(),name:z.string().min(1).max(80
 const order=z.array(z.string()).max(10000)
 const dimensions=z.object({x:z.number().finite(),y:z.number().finite(),width:z.number().finite().min(0).max(10000),height:z.number().finite().min(0).max(10000)})
 function channels(){
+ register('commands:queryPort',(a:unknown)=>queryPort(portSchema.parse(a)))
+ register('commands:terminate',(a:unknown)=>terminatePortProcess(killSchema.parse(a)))
+ register('commands:chooseDirectory',async()=>{const result=await dialog.showOpenDialog(win!,{title:'选择目录',properties:['openDirectory']});return result.canceled?null:result.filePaths[0]||null})
+ register('commands:validateJunction',(a:unknown)=>previewJunction(junctionSchema.parse(a)))
+ register('commands:createJunction',(a:unknown)=>createJunction(junctionSchema.parse(a)))
+ register('commands:openFolder',async(a:unknown)=>{
+  const folder=z.string().min(3).max(1024).parse(a)
+  if(!/^[a-zA-Z]:\\/.test(folder)||folder.startsWith('\\\\'))throw Error('仅允许打开本地绝对路径')
+  if(!fs.statSync(folder,{throwIfNoEntry:false})?.isDirectory())throw Error('文件夹不存在')
+  const error=await shell.openPath(folder)
+  if(error)throw Error(error)
+ })
  register('codecPipelines:list',()=>listCodecPipelines(getDb()))
  register('codecPipelines:get',(a:unknown)=>getCodecPipeline(getDb(),z.uuid().parse(a)))
  register('codecPipelines:create',(a:unknown)=>createCodecPipeline(getDb(),pipelineInputSchema.parse(a)))

@@ -1,7 +1,9 @@
 import type { Category, Tool, Settings, DataInfo, CryptoResult } from './models'
 import type {PipelineInput,PipelineSaved,PipelineSummary} from '../shared/codecModels'
+import type {KillInput,JunctionInput,JunctionPreview,JunctionResult,PortQueryResult,TerminateResult} from '../shared/commandModels'
 import type {TransferPreferences,TransferSnapshot,SharedFile,LanInterface} from '../shared/fileTransferModels'
 export interface ToolDockAPI {
+  commands:{queryPort(port:number):Promise<PortQueryResult>;terminate(input:KillInput):Promise<TerminateResult>;chooseDirectory():Promise<string|null>;validateJunction(input:JunctionInput):Promise<JunctionPreview>;createJunction(input:JunctionInput):Promise<JunctionResult>;openFolder(path:string):Promise<void>}
   codecPipelines:{list():Promise<PipelineSummary[]>;get(id:string):Promise<PipelineSaved>;create(data:PipelineInput):Promise<PipelineSaved>;update(id:string,expectedRevision:number,data:PipelineInput):Promise<PipelineSaved>;duplicate(id:string,newName?:string):Promise<PipelineSaved>;remove(id:string,expectedRevision?:number):Promise<void>}
   window: { minimize(): Promise<void>; toggleMaximize(): Promise<void>; close(): Promise<void>; isMaximized(): Promise<boolean> }
   categories: { list(): Promise<Category[]>; save(input: Partial<Category> & {name: string}): Promise<Category>; remove(id:string):Promise<void>; reorder(ids:string[]):Promise<void> }

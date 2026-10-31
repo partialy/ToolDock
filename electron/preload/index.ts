@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 const invoke=(channel:string,payload?:unknown)=>ipcRenderer.invoke(channel,payload)
 const api={
+ commands:{queryPort:(port:number)=>invoke('commands:queryPort',port),terminate:(input:unknown)=>invoke('commands:terminate',input),chooseDirectory:()=>invoke('commands:chooseDirectory'),validateJunction:(input:unknown)=>invoke('commands:validateJunction',input),createJunction:(input:unknown)=>invoke('commands:createJunction',input),openFolder:(path:string)=>invoke('commands:openFolder',path)},
  codecPipelines:{list:()=>invoke('codecPipelines:list'),get:(id:string)=>invoke('codecPipelines:get',id),create:(data:unknown)=>invoke('codecPipelines:create',data),update:(id:string,expectedRevision:number,data:unknown)=>invoke('codecPipelines:update',{id,expectedRevision,data}),duplicate:(id:string,newName?:string)=>invoke('codecPipelines:duplicate',{id,newName}),remove:(id:string,expectedRevision?:number)=>invoke('codecPipelines:remove',{id,expectedRevision})},
  window:{
   minimize:()=>invoke('window:minimize'),toggleMaximize:()=>invoke('window:toggleMaximize'),

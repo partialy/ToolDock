@@ -100,3 +100,11 @@ npm run dist
 - SQLite v8 新增 `codec_pipelines` 表及 `codecPipelines` 受限 IPC，可保存最多 200 份独立流水线配置，支持命名、保存修改、另存为、复制、搜索、删除和配置 JSON 导入导出。**只持久化流程步骤和参数，不持久化用户输入、结果或中间文本。**
 - 密钥生成器中的旧 Base64 Tab 已移除；AES 密钥的 Base64 / Base64URL 输出不受影响。新增工具默认位于「开发工具」，内置工具身份/用户自定义排序与显隐遵循原有规则。
 - 设计及验收记录见被 Git 忽略的 `plans/CODEC_PIPELINE_IMPLEMENTATION.md`。
+
+## 命令执行工具（2026-10-31）
+
+- 新增「开发工具 → 命令执行」内置工具（`builtin-command-tool`，SQLite v9 增量注册），只有「端口管理」与「Junction 链接」两个固定功能，不支持自定义 PowerShell/CMD 命令。
+- 端口管理：输入本机端口（1–65535），通过 Windows PowerShell 查询 TCP/UDP 的 IPv4/IPv6 占用，展示连接状态、进程名、PID、路径及结果耗时，支持协议/状态筛选、复制及刷新；结束进程需二次确认，并再次核验启动时间、PID、端口归属，保护系统和 ToolDock 关键进程。
+- Junction：支持系统目录选择器或手动输入已有目标/父目录和新链接名，实时路径校验、冲突阻止、Windows Junction 创建与映射验证；可复制路径和打开链接目录，不会覆盖、移动或删除已有目录。
+- 所有能力经 Electron 可信主进程的专用 IPC 执行，执行超时 15 秒且输出受限；仅使用当前用户权限。结果仅保存在页面会话中，不进入 SQLite/日志；不需要额外数据库表。
+- 详细设计与验收见本地忽略的 `plans/COMMAND_EXECUTION_IMPLEMENTATION.md`。

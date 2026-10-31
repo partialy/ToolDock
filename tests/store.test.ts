@@ -57,8 +57,8 @@ describe('分类与 SQLite 持久化', () => {
 })
 
 describe('SQLite v2 JSON 内置工具增量升级', () => {
- it('全新安装注册两个不可删除的内置工具',()=>{
-  expect(listTools().filter(x=>x.isBuiltin).map(x=>x.id).sort()).toEqual(['builtin-codec-tool','builtin-file-transfer','builtin-image-encoding','builtin-image-processor','builtin-json-tool','builtin-key-generator','builtin-logo-icon-generator','builtin-qr-code-tool','builtin-text-diff','builtin-time-converter','builtin-uuid-generator'])
+ it('全新安装注册全部不可删除的内置工具',()=>{
+  expect(listTools().filter(x=>x.isBuiltin).map(x=>x.id).sort()).toEqual(['builtin-codec-tool','builtin-command-tool','builtin-file-transfer','builtin-image-encoding','builtin-image-processor','builtin-json-tool','builtin-key-generator','builtin-logo-icon-generator','builtin-qr-code-tool','builtin-text-diff','builtin-time-converter','builtin-uuid-generator'])
   expect(()=>removeTool('builtin-json-tool')).toThrow('内置工具')
  })
  it('模拟 v1 升级时保留重命名且隐藏的 developer 分类',()=>{
