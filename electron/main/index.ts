@@ -14,6 +14,8 @@ import { generateRsa, generateSsh, generateEc, generateAes, generateRandom } fro
 import { initLog, recordEvent, exportLogs, clearLogs } from './services/log'
 import {beginFileExport,appendExportChunk,finishFileExport,cancelFileExport,disposeAllExports} from './services/file-export'
 import {fileTransfer} from './services/transfer'
+import {QuickLaunchService} from './services/quick-launch'
+import {quickLaunchSaveSchema} from '../../src/shared/quickLaunchModels'
 
 const devMode=!app.isPackaged
 app.setName(devMode?'ToolDock-Dev':'ToolDock')
@@ -25,6 +27,10 @@ app.setPath('userData',base)
 const stateFile=path.join(base,'window.json')
 let win:BrowserWindow|null=null
 let closing=false
+const primaryInstance=app.requestSingleInstanceLock()
+if(!primaryInstance)app.quit()
+app.on('second-instance',()=>{if(win&&!win.isDestroyed()){if(win.isMinimized())win.restore();win.show();win.focus()}})
+const quickLaunch=new QuickLaunchService(()=>win)
 const isMain=(event:Electron.IpcMainInvokeEvent)=>!!win&&!win.isDestroyed()&&event.sender===win.webContents
 function register<T>(channel:string,fn:(arg:T)=>unknown|Promise<unknown>){ipcMain.handle(channel,async(e,arg:T)=>{if(!isMain(e))throw Error('不可信的 IPC 来源');try{return await fn(arg)}catch(e){recordEvent('ipc-failed:'+channel,'error');throw e}})}
 const text=z.string().min(1).max(500)
@@ -33,6 +39,25 @@ const toolInput=z.object({id:z.string().optional(),name:z.string().min(1).max(80
 const order=z.array(z.string()).max(10000)
 const dimensions=z.object({x:z.number().finite(),y:z.number().finite(),width:z.number().finite().min(0).max(10000),height:z.number().finite().min(0).max(10000)})
 function channels(){
+ const appVersion=z.strictObject({id:z.uuid(),revision:z.number().int().positive()})
+ register('quickLaunch:list',()=>quickLaunch.list())
+ register('quickLaunch:tasks',()=>quickLaunch.tasks())
+ register('quickLaunch:save',(a:unknown)=>quickLaunch.save(quickLaunchSaveSchema.parse(a)))
+ register('quickLaunch:setVisible',(a:unknown)=>{const v=appVersion.extend({visible:z.boolean()}).parse(a);return quickLaunch.setVisible(v.id,v.revision,v.visible)})
+ register('quickLaunch:remove',(a:unknown)=>{const v=appVersion.parse(a);return quickLaunch.remove(v.id,v.revision)})
+ register('quickLaunch:reorderApps',(a:unknown)=>{const v=z.strictObject({groupId:z.string().min(1).max(60),ids:z.array(z.uuid()).max(1000)}).parse(a);return quickLaunch.reorderApps(v.groupId,v.ids)})
+ register('quickLaunch:saveGroup',(a:unknown)=>{const v=z.strictObject({name:z.string().trim().min(1).max(60),id:z.union([z.uuid(),z.literal('ungrouped')]).optional()}).parse(a);return quickLaunch.saveGroup(v.name,v.id)})
+ register('quickLaunch:removeGroup',(a:unknown)=>quickLaunch.removeGroup(z.union([z.uuid(),z.literal('ungrouped')]).parse(a)))
+ register('quickLaunch:reorderGroups',(a:unknown)=>quickLaunch.reorderGroups(z.array(z.union([z.uuid(),z.literal('ungrouped')])).max(100).parse(a)))
+ register('quickLaunch:chooseScript',(a:unknown)=>quickLaunch.chooseScript(z.enum(['powershell','cmd']).parse(a)))
+ register('quickLaunch:chooseIcon',()=>quickLaunch.chooseIcon())
+ register('quickLaunch:chooseWorkingDirectory',()=>quickLaunch.chooseWorkingDirectory())
+ register('quickLaunch:openResources',(a:unknown)=>quickLaunch.openResources(z.uuid().parse(a)))
+ register('quickLaunch:run',(a:unknown)=>{const v=appVersion.extend({confirmed:z.boolean()}).parse(a);return quickLaunch.run(v.id,v.revision,v.confirmed)})
+ register('quickLaunch:task',(a:unknown)=>quickLaunch.task(z.uuid().parse(a)))
+ register('quickLaunch:stop',(a:unknown)=>quickLaunch.stop(z.uuid().parse(a)))
+ register('quickLaunch:reconcile',()=>quickLaunch.reconcile())
+ register('quickLaunch:clearUnknown',(a:unknown)=>{const v=z.strictObject({id:z.uuid(),confirmed:z.boolean()}).parse(a);return quickLaunch.clearUnknown(v.id,v.confirmed)})
  register('commands:queryPort',(a:unknown)=>queryPort(portSchema.parse(a)))
  register('commands:terminate',(a:unknown)=>terminatePortProcess(killSchema.parse(a)))
  register('commands:chooseDirectory',async()=>{const result=await dialog.showOpenDialog(win!,{title:'选择目录',properties:['openDirectory']});return result.canceled?null:result.filePaths[0]||null})
@@ -65,12 +90,13 @@ function channels(){
  register('tools:reorder',(a:unknown)=>{const input=z.object({categoryId:text,ids:order}).parse(a);return reorderTools(input.categoryId,input.ids)})
  register('settings:get',()=>getSettings())
  register('settings:set',(a:unknown)=>{
-  const {key,value}=z.object({key:z.enum(['theme','motion','showDefaultTag','allowHttp','sidebarWidth','notificationPosition','fileTransferPrefs']),value:z.unknown()}).parse(a)
+  const {key,value}=z.object({key:z.enum(['theme','motion','showDefaultTag','allowHttp','sidebarWidth','notificationPosition','fileTransferPrefs','quickLaunchTrigger','quickLaunchStopOnExit']),value:z.unknown()}).parse(a)
+  if(key==='quickLaunchTrigger'&&!['single','double'].includes(String(value)))throw Error('无效的快捷启动方式')
   if(key==='notificationPosition'&&!['top-left','top-right','bottom-left','bottom-right'].includes(String(value)))throw Error('通知位置无效')
   if(key==='fileTransferPrefs')throw Error('文件快传配置必须通过受限专用接口修改')
   if(key==='theme'&&!['dark','light'].includes(String(value)))throw Error('无效主题')
   if(key==='motion'&&!['normal','reduced','off'].includes(String(value)))throw Error('无效动画偏好')
-  if(['allowHttp','showDefaultTag'].includes(key)&&typeof value!=='boolean')throw Error('无效布尔设置')
+  if(['allowHttp','showDefaultTag','quickLaunchStopOnExit'].includes(key)&&typeof value!=='boolean')throw Error('无效布尔设置')
   if(key==='sidebarWidth'&&(typeof value!=='number'||value<200||value>440))throw Error('侧栏宽度超出范围')
   return putSetting(key,value as never)
  })
@@ -96,11 +122,11 @@ function channels(){
  register('views:clearData',(id:unknown)=>clearWebData(win!,text.parse(id)))
  register('data:info',()=>getDataInfo())
  register('data:choose',()=>chooseDataFolder(win!))
- register('data:migrate',(a:unknown)=>{if(fileTransfer.getSnapshot().running)throw Error('请先停止文件快传服务再迁移数据目录');return migrateData(win!,z.string().min(3).max(1024).parse(a))})
- register('data:deleteOld',(a:unknown)=>deleteOldData(text.parse(a)))
+ register('data:migrate',(a:unknown)=>quickLaunch.dataMutation(()=>{if(fileTransfer.getSnapshot().running)throw Error('请先停止文件快传服务再迁移数据目录');return migrateData(win!,z.string().min(3).max(1024).parse(a))}))
+ register('data:deleteOld',(a:unknown)=>quickLaunch.dataMutation(()=>deleteOldData(text.parse(a))))
  register('data:openFolder',()=>openDataFolder())
- register('data:backup',()=>backupData(win!))
- register('data:restore',()=>{if(fileTransfer.getSnapshot().running)throw Error('请先停止文件快传服务并处理待接收文件，再恢复数据备份');return restoreData(win!)})
+ register('data:backup',()=>quickLaunch.backup(()=>backupData(win!)))
+ register('data:restore',()=>quickLaunch.dataMutation(()=>{if(fileTransfer.getSnapshot().running)throw Error('请先停止文件快传服务并处理待接收文件，再恢复数据备份');return restoreData(win!)}))
  register('data:exportLogs',()=>exportLogs(win!))
  register('data:clearLogs',()=>clearLogs())
  register('data:restart',()=>{app.relaunch();app.quit()})
@@ -140,9 +166,10 @@ function createWindow(){
  else w.loadFile(path.join(__dirname,'../renderer/index.html'))
  if(devMode)w.webContents.openDevTools({mode:'detach'})
 }
-app.whenReady().then(()=>{
- try{initStore();initMarker();initLog();void fileTransfer.cleanupAbandoned();recordEvent('app-start');channels();createWindow();const prefs=getSettings().fileTransferPrefs;fileTransfer.setPrefs(prefs);if(win)fileTransfer.setWindow(win);fileTransfer.on('change',()=>{}); }
+app.whenReady().then(async()=>{
+ if(!primaryInstance)return
+ try{initStore();initMarker();initLog();await quickLaunch.initialize();void fileTransfer.cleanupAbandoned();recordEvent('app-start');channels();createWindow();const prefs=getSettings().fileTransferPrefs;fileTransfer.setPrefs(prefs);if(win)fileTransfer.setWindow(win);fileTransfer.on('change',()=>{}); }
  catch(e){dialog.showErrorBox('ToolDock 初始化失败',e instanceof Error?e.stack||e.message:String(e));app.quit()}
 })
 app.on('window-all-closed',()=>app.quit())
-app.on('before-quit',e=>{if(!closing){closing=true;e.preventDefault();void fileTransfer.stop().finally(()=>{try{disposeAllExports();closeStore()}catch{};app.quit()})}})
+app.on('before-quit',e=>{if(primaryInstance&&!closing){closing=true;e.preventDefault();const stopTasks=(()=>{try{return getSettings().quickLaunchStopOnExit}catch{return false}})();void Promise.allSettled([fileTransfer.stop(),quickLaunch.shutdown(stopTasks)]).finally(()=>{try{disposeAllExports();closeStore()}catch{};app.quit()})}})

@@ -1,6 +1,15 @@
 import { contextBridge, ipcRenderer } from 'electron'
 const invoke=(channel:string,payload?:unknown)=>ipcRenderer.invoke(channel,payload)
 const api={
+ quickLaunch:{
+  list:()=>invoke('quickLaunch:list'),tasks:()=>invoke('quickLaunch:tasks'),save:(input:unknown)=>invoke('quickLaunch:save',input),
+  setVisible:(id:string,revision:number,visible:boolean)=>invoke('quickLaunch:setVisible',{id,revision,visible}),remove:(id:string,revision:number)=>invoke('quickLaunch:remove',{id,revision}),
+  reorderApps:(groupId:string,ids:string[])=>invoke('quickLaunch:reorderApps',{groupId,ids}),
+  saveGroup:(name:string,id?:string)=>invoke('quickLaunch:saveGroup',{name,id}),removeGroup:(id:string)=>invoke('quickLaunch:removeGroup',id),reorderGroups:(ids:string[])=>invoke('quickLaunch:reorderGroups',ids),
+  chooseScript:(shell:string)=>invoke('quickLaunch:chooseScript',shell),chooseIcon:()=>invoke('quickLaunch:chooseIcon'),chooseWorkingDirectory:()=>invoke('quickLaunch:chooseWorkingDirectory'),openResources:(id:string)=>invoke('quickLaunch:openResources',id),
+  run:(id:string,revision:number,confirmed:boolean)=>invoke('quickLaunch:run',{id,revision,confirmed}),task:(id:string)=>invoke('quickLaunch:task',id),stop:(id:string)=>invoke('quickLaunch:stop',id),reconcile:()=>invoke('quickLaunch:reconcile'),clearUnknown:(id:string,confirmed:boolean)=>invoke('quickLaunch:clearUnknown',{id,confirmed}),
+  onChange:(cb:()=>void)=>{const fn=()=>cb();ipcRenderer.on('quickLaunch:changed',fn);return()=>ipcRenderer.off('quickLaunch:changed',fn)}
+ },
  commands:{queryPort:(port:number)=>invoke('commands:queryPort',port),terminate:(input:unknown)=>invoke('commands:terminate',input),chooseDirectory:()=>invoke('commands:chooseDirectory'),validateJunction:(input:unknown)=>invoke('commands:validateJunction',input),createJunction:(input:unknown)=>invoke('commands:createJunction',input),openFolder:(path:string)=>invoke('commands:openFolder',path)},
  codecPipelines:{list:()=>invoke('codecPipelines:list'),get:(id:string)=>invoke('codecPipelines:get',id),create:(data:unknown)=>invoke('codecPipelines:create',data),update:(id:string,expectedRevision:number,data:unknown)=>invoke('codecPipelines:update',{id,expectedRevision,data}),duplicate:(id:string,newName?:string)=>invoke('codecPipelines:duplicate',{id,newName}),remove:(id:string,expectedRevision?:number)=>invoke('codecPipelines:remove',{id,expectedRevision})},
  window:{

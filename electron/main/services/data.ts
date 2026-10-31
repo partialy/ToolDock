@@ -6,6 +6,7 @@ import AdmZip from 'adm-zip'
 import Database from '../database/sqlite'
 import { closeStore, getDataRoot, getDb, initStore, setBoot, defaultDataRoot } from '../database/store'
 import { prepareWebviewsForDataMove } from '../views/webviews'
+import {addDataFolder,validateDataArchive} from './data-archive'
 
 const marker='.tooldock-data'
 function canonical(p:string){return path.resolve(p).toLowerCase()}
@@ -67,7 +68,7 @@ export async function backupData(win:BrowserWindow):Promise<string|null> {
   const zip=new AdmZip()
   const root=getDataRoot()
   zip.addLocalFile(temp,'','tooldock.sqlite')
-  for(const sub of ['tools','outputs'])if(fs.existsSync(path.join(root,sub)))zip.addLocalFolder(path.join(root,sub),sub)
+  for(const sub of ['tools','outputs'] as const)addDataFolder(zip,root,sub)
   zip.addFile('manifest.json',Buffer.from(JSON.stringify({app:'ToolDock',format:1,createdAt:new Date().toISOString()})))
   zip.writeZip(save.filePath)
   return save.filePath
@@ -78,13 +79,11 @@ export async function restoreData(win:BrowserWindow):Promise<{restartRequired:bo
  if(picked.canceled)return null
  const zip=new AdmZip(picked.filePaths[0])
  const entries=zip.getEntries()
+ validateDataArchive(entries)
  const names=entries.map(e=>e.entryName)
  if(!names.includes('manifest.json')||!names.includes('tooldock.sqlite'))throw Error('不支持的备份格式')
  const manifest=JSON.parse(zip.readAsText('manifest.json')) as {app?:string;format?:number}
  if(manifest.app!=='ToolDock'||manifest.format!==1)throw Error('备份版本不兼容')
- for(const entry of entries) {
-  if(entry.entryName.startsWith('/')||entry.entryName.includes('..')||entry.entryName.includes('\\')||entry.isDirectory===false&&entry.header.size>1024*1024*1024)throw Error('备份中存在不安全的文件路径或超大文件')
- }
  const dir=path.join(app.getPath('temp'),'tooldock-restore-'+randomUUID())
  fs.mkdirSync(dir,{recursive:true})
  zip.extractAllTo(dir,true)

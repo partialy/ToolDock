@@ -14,3 +14,7 @@ data/
 coverage/
 *.sqlite
 *.sqlite-*
+native/.cli-home/
+native/**/bin/
+native/**/obj/
+native/**/publish/
