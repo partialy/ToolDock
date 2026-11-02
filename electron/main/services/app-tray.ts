@@ -5,7 +5,7 @@ import path from 'node:path'
 export function appIconPath(){
  return app.isPackaged
   ?path.join(process.resourcesPath,'tooldock-icon.ico')
-  :path.join(app.getAppPath(),'src/assets/tooldock-icon.ico')
+  :path.resolve(__dirname,'../../src/assets/tooldock-icon.ico')
 }
 
 export function createAppTray(showWindow:()=>void){
