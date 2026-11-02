@@ -1,6 +1,8 @@
 import { useCallback,useEffect,useRef,useState } from 'react'
 import { AnimatePresence, MotionConfig, motion, useReducedMotion } from 'motion/react'
-import { AlertTriangle, RefreshCw, Globe, Blocks } from 'lucide-react'
+import { AlertTriangle, RefreshCw, Globe } from 'lucide-react'
+import { version } from '../package.json'
+import { AppLogo } from '@/components/ui/app-logo'
 import { MotionPreferenceContext } from '@/components/ui/motion-preference'
 import { HeaderBar } from '@/components/layout/HeaderBar'
 import { Sidebar } from '@/components/layout/Sidebar'
@@ -86,7 +88,7 @@ export default function App(){
   if(active==='manager')return <ManagerPage ws={ws} onEdit={openEditor}/>
   if(active==='settings')return <SettingsPage ws={ws}/>
   if(active==='quick-launch')return <QuickLaunchPage trigger={ws.settings.quickLaunchTrigger}/>
-  if(active==='about')return <div className="mx-auto max-w-3xl p-12"><div className="mb-4 flex items-center gap-3"><Blocks size={32} className="text-indigo-400"/><h1 className="text-2xl font-semibold">ToolDock</h1></div><p className="mb-5 text-sm muted">桌面工具聚合平台 · v0.1.0</p><p className="text-sm leading-8 muted">React + Electron + shadcn/ui + Tailwind CSS + Motion + SQLite。将常用网页与开发工具集中在一个独立工作区。</p></div>
+  if(active==='about')return <div className="mx-auto max-w-3xl p-12"><div className="mb-4 flex items-center gap-3"><AppLogo size={48}/><h1 className="text-2xl font-semibold">ToolDock</h1></div><p className="mb-5 text-sm muted">桌面工具聚合平台 · v{version}</p><p className="text-sm leading-8 muted">将常用网页、开发工具与快捷启动集中在一个独立工作区。</p></div>
   if(tool?.type==='link')return <WebTool key={tool.id} toolId={tool.id}/>
   if(tool?.type==='internal'&&builtinByTarget(tool.target)){
    const pages:Record<string,React.ReactNode>={'key-generator':<KeyGeneratorPage key={tool.id}/>,'json-tool':<JsonToolPage key={tool.id}/>,'text-diff':<TextDiffPage key={tool.id}/>,'codec-tool':<CodecToolPage key={tool.id}/>,'command-tool':<CommandToolPage key={tool.id}/>,'image-processor':<ImageProcessorPage key={tool.id}/>,'logo-icon-generator':<LogoIconGeneratorPage key={tool.id}/>,'image-encoding':<ImageEncodingPage key={tool.id}/>,'qr-code-tool':<QrCodeToolPage key={tool.id}/>,'file-transfer':<FileTransferPage key={tool.id}/>,'time-converter':<TimeConverterPage key={tool.id}/>,'uuid-generator':<UuidGeneratorPage key={tool.id}/>}

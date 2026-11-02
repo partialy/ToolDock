@@ -40,3 +40,7 @@
 - 快捷启动与既有命令执行工具保持独立边界；不得扩展 commands:* 为任意命令入口。快捷启动使用独立 quickLaunch:* IPC、SQLite v10 的 App/分组及独立 Windows Runner；命令、脚本和控制台输出不得进入诊断日志。
 - 快捷启动托管资源在 tools/quick-launch/apps，运行身份与控制凭据在 tools/quick-launch/runtime；备份排除 runtime，恢复拒绝导入运行身份。运行中/状态未知时锁定配置，阻止迁移、恢复和旧副本清理；停止仅作用于认证 Runner 持有的 Job。
 - 正式 Runner 源码在 native/quick-launch-runner，使用 .NET 10 self-contained win-x64；开发先执行 npm run build:runner，npm run dist 自动构建 Runner。构建产物不提交，通过 extraResources 打包；重建前停止仍使用该二进制的任务。运行输出只在内存保留，任务元数据轮询不重复传输 App 配置和图标；详细模块/验收说明见 docs/quick-launch.md。
+
+- v1.0.0 品牌资源在 src/assets：WebP 供应用内展示，含 16–256px 图层的 ICO 供窗口、任务栏、托盘、安装与卸载程序使用；运行时 ICO 通过 extraResources 打包。Windows AppUserModelID 与打包 appId 保持 cn.partial.tooldock。
+- 系统托盘由 electron/main/services/app-tray.ts 管理，仅提供「显示主界面」「退出」。关闭主窗口隐藏到托盘并保留页面及运行任务；点击托盘恢复窗口，退出/重启沿用文件快传与快捷启动的清理流程，重复退出不能跳过异步清理。
+- Windows 使用 NSIS 向导安装（oneClick=false、allowToChangeInstallationDirectory=true），允许手动选择安装路径，创建桌面与开始菜单快捷方式。安装目录与用户数据目录相互独立。

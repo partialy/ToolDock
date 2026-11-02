@@ -2,6 +2,13 @@
 
 Windows 桌面小工具聚合器。技术栈：Electron + React + TypeScript + electron-vite + Tailwind CSS + shadcn/ui 风格组件 + Motion + Lucide；本地数据使用 Node/Electron 内置 `node:sqlite`（无需额外 C++ SQLite 插件）。
 
+## v1.0.0 发布
+
+- 统一应用内 Logo、窗口/任务栏、系统托盘与安装/卸载程序图标，关于页随应用版本显示。
+- 关闭主窗口会隐藏至系统托盘，页面状态和后台任务保留；点击托盘或选择「显示主界面」恢复窗口，选择「退出」正常退出。退出仍遵循快捷启动的「退出时自动停止任务」设置。
+- Windows NSIS 安装向导支持手动选择安装路径，并创建桌面与开始菜单快捷方式；安装位置不影响独立的用户数据目录。
+- 快捷启动的使用及运行安全边界见 [快捷启动说明](docs/quick-launch.md)。
+
 ## 启动
 
 需要 Windows 10/11、Node.js 22+ 与 npm。
@@ -22,7 +29,7 @@ npm run build
 npm run dist
 ```
 
-`npm run dist` 默认在 `release/` 下生成 Windows NSIS 安装包。**若原 release/win-unpacked 正在运行、文件被占用**，可改用独立输出目录：`npx electron-builder --win nsis -c.directories.output=plans\release-verify`。不要为了构建强行关闭用户正在运行的应用。
+`npm run dist` 默认在 `release/` 下生成 Windows NSIS 安装包。**若原 release/win-unpacked 正在运行、文件被占用**，可改用独立输出目录：`npx electron-builder --win nsis '--config.directories.output=plans/release-verify'`。不要为了构建强行关闭用户正在运行的应用。
 
 ## 功能
 

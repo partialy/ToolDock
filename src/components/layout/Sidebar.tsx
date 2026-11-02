@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useMemo, useState } from 'react'
-import { PanelLeftClose, PanelLeftOpen, Search, ChevronDown, MoreHorizontal, Settings, Grid3X3, House, Plus, Blocks, Info, Zap } from 'lucide-react'
+import { PanelLeftClose, PanelLeftOpen, Search, ChevronDown, MoreHorizontal, Settings, Grid3X3, House, Plus, Info, Zap } from 'lucide-react'
+import { AppLogo } from '@/components/ui/app-logo'
 import { Icon } from '@/components/ui/icon'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,7 +19,7 @@ export function Sidebar({ws,active,onGo,onEditCat,onEditTool,onAdd,collapsed,set
  const toggle=(id:string)=>setFolded(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id])
  return <motion.aside initial={false} animate={{width:collapsed?62:ws.settings.sidebarWidth}} transition={ws.settings.motion==='off'?{duration:0}:{type:'spring',stiffness:340,damping:37}} className="relative z-20 flex h-full shrink-0 flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--panel)]">
   <div className="flex h-14 shrink-0 items-center justify-between px-3">
-   {!collapsed&&<span className="flex items-center gap-2 text-sm font-semibold"><Blocks size={18} className="text-indigo-400"/> 工作区</span>}
+   {!collapsed&&<span className="flex items-center gap-2 text-sm font-semibold"><AppLogo size={24}/> 工作区</span>}
    <Button variant="ghost" size="icon" aria-label={collapsed?'展开侧栏':'收起侧栏'} title={collapsed?'展开侧栏':'收起侧栏'} onClick={()=>setCollapsed(!collapsed)}>{collapsed?<PanelLeftOpen size={18}/>:<PanelLeftClose size={18}/>}</Button>
   </div>
   {!collapsed&&<div className="px-3 pb-3"><div className="relative"><Search size={15} className="pointer-events-none absolute left-3 top-2.5 text-[var(--muted)]"/><Input className="pl-9" placeholder="搜索分类或工具..." value={search} onChange={e=>setSearch(e.target.value)}/></div></div>}

@@ -7,6 +7,8 @@ files:
   - package.json
 asar: true
 extraResources:
+  - from: src/assets/tooldock-icon.ico
+    to: tooldock-icon.ico
   - from: native/quick-launch-runner/publish
     to: quick-launch-runner
     filter:
@@ -15,9 +17,13 @@ npmRebuild: true
 asarUnpack:
   - "**/*.node"
 win:
+  icon: src/assets/tooldock-icon.ico
   target:
     - nsis
 nsis:
+  installerIcon: src/assets/tooldock-icon.ico
+  uninstallerIcon: src/assets/tooldock-icon.ico
+  installerHeaderIcon: src/assets/tooldock-icon.ico
   oneClick: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true

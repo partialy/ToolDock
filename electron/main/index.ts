@@ -16,6 +16,7 @@ import {beginFileExport,appendExportChunk,finishFileExport,cancelFileExport,disp
 import {fileTransfer} from './services/transfer'
 import {QuickLaunchService} from './services/quick-launch'
 import {quickLaunchSaveSchema} from '../../src/shared/quickLaunchModels'
+import {appIconPath,createAppTray} from './services/app-tray'
 
 const devMode=!app.isPackaged
 app.setName(devMode?'ToolDock-Dev':'ToolDock')
@@ -27,9 +28,16 @@ app.setPath('userData',base)
 const stateFile=path.join(base,'window.json')
 let win:BrowserWindow|null=null
 let closing=false
+let shutdownComplete=false
+let tray:ReturnType<typeof createAppTray>|null=null
+function showMainWindow(){
+ if(closing||!win||win.isDestroyed())return
+ if(win.isMinimized())win.restore()
+ win.show();win.focus()
+}
 const primaryInstance=app.requestSingleInstanceLock()
 if(!primaryInstance)app.quit()
-app.on('second-instance',()=>{if(win&&!win.isDestroyed()){if(win.isMinimized())win.restore();win.show();win.focus()}})
+app.on('second-instance',showMainWindow)
 const quickLaunch=new QuickLaunchService(()=>win)
 const isMain=(event:Electron.IpcMainInvokeEvent)=>!!win&&!win.isDestroyed()&&event.sender===win.webContents
 function register<T>(channel:string,fn:(arg:T)=>unknown|Promise<unknown>){ipcMain.handle(channel,async(e,arg:T)=>{if(!isMain(e))throw Error('不可信的 IPC 来源');try{return await fn(arg)}catch(e){recordEvent('ipc-failed:'+channel,'error');throw e}})}
@@ -149,7 +157,7 @@ function createWindow(){
   if(display){bounds.x=saved.x;bounds.y=saved.y}
  }
  win=new BrowserWindow({
-  ...bounds,minWidth:880,minHeight:560,show:false,frame:false,autoHideMenuBar:true,backgroundColor:'#15171d',
+  ...bounds,minWidth:880,minHeight:560,show:false,frame:false,autoHideMenuBar:true,backgroundColor:'#15171d',icon:appIconPath(),
   webPreferences:{preload:path.join(__dirname,'../preload/index.js'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}
  })
  const w=win
@@ -157,7 +165,11 @@ function createWindow(){
  w.on('resize',()=>{if(!w.isMaximized())save()})
  w.on('move',()=>{if(!w.isMaximized())save()})
  w.on('maximize',save);w.on('unmaximize',save)
- w.on('close',()=>{save();removeWebview(w)})
+ w.on('close',e=>{
+  save()
+  if(!closing&&tray&&!tray.isDestroyed()){e.preventDefault();w.hide();return}
+  removeWebview(w)
+ })
  w.on('closed',()=>{win=null})
  w.webContents.setWindowOpenHandler(()=>({action:'deny'}))
  w.webContents.on('will-navigate',e=>e.preventDefault())
@@ -168,8 +180,18 @@ function createWindow(){
 }
 app.whenReady().then(async()=>{
  if(!primaryInstance)return
- try{initStore();initMarker();initLog();await quickLaunch.initialize();void fileTransfer.cleanupAbandoned();recordEvent('app-start');channels();createWindow();const prefs=getSettings().fileTransferPrefs;fileTransfer.setPrefs(prefs);if(win)fileTransfer.setWindow(win);fileTransfer.on('change',()=>{}); }
+ try{app.setAppUserModelId('cn.partial.tooldock');initStore();initMarker();initLog();await quickLaunch.initialize();void fileTransfer.cleanupAbandoned();recordEvent('app-start');channels();createWindow();tray=createAppTray(showMainWindow);const prefs=getSettings().fileTransferPrefs;fileTransfer.setPrefs(prefs);if(win)fileTransfer.setWindow(win);fileTransfer.on('change',()=>{}); }
  catch(e){dialog.showErrorBox('ToolDock 初始化失败',e instanceof Error?e.stack||e.message:String(e));app.quit()}
 })
-app.on('window-all-closed',()=>app.quit())
-app.on('before-quit',e=>{if(primaryInstance&&!closing){closing=true;e.preventDefault();const stopTasks=(()=>{try{return getSettings().quickLaunchStopOnExit}catch{return false}})();void Promise.allSettled([fileTransfer.stop(),quickLaunch.shutdown(stopTasks)]).finally(()=>{try{disposeAllExports();closeStore()}catch{};app.quit()})}})
+app.on('window-all-closed',()=>{if(!tray||tray.isDestroyed())app.quit()})
+app.on('before-quit',e=>{
+ if(!primaryInstance||shutdownComplete)return
+ e.preventDefault()
+ if(closing)return
+ closing=true
+ const stopTasks=(()=>{try{return getSettings().quickLaunchStopOnExit}catch{return false}})()
+ void Promise.allSettled([fileTransfer.stop(),quickLaunch.shutdown(stopTasks)]).finally(()=>{
+  try{disposeAllExports();closeStore()}catch{}
+  tray?.destroy();tray=null;shutdownComplete=true;app.quit()
+ })
+})

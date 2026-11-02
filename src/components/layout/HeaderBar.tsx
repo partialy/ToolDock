@@ -1,6 +1,7 @@
 import * as Menu from '@radix-ui/react-dropdown-menu'
 import { ArrowLeft, ArrowRight, Plus, Minus, Square, X, Copy, Moon, Sun, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { AppLogo } from '@/components/ui/app-logo'
 import type {Settings} from '@/types/models'
 export function HeaderBar({back,forward,canBack,canForward,title,onAddCategory,onAddTool,settings,onTheme}:{back:()=>void;forward:()=>void;canBack:boolean;canForward:boolean;title:string;onAddCategory:()=>void;onAddTool:()=>void;settings:Settings;onTheme:()=>void}){
  return <header className="window-drag z-30 flex h-[48px] shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--panel)] px-1">
@@ -15,7 +16,7 @@ export function HeaderBar({back,forward,canBack,canForward,title,onAddCategory,o
     </Menu.Content></Menu.Portal>
    </Menu.Root>
   </div>
-  <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 flex max-w-[40%] items-center gap-2 truncate text-[13px] font-medium"><span className="text-[var(--muted)]">ToolDock</span><span className="text-[var(--muted)]">/</span><span className="truncate">{title}</span></div>
+  <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 flex max-w-[40%] items-center gap-2 truncate text-[13px] font-medium"><AppLogo size={24}/><span className="text-[var(--muted)]">ToolDock</span><span className="text-[var(--muted)]">/</span><span className="truncate">{title}</span></div>
   <div className="window-nodrag flex h-full items-center gap-1">
    <Button variant="ghost" size="icon" aria-label="切换主题" title="切换深浅主题" onClick={onTheme}>{settings.theme==='dark'?<Sun size={17}/>:<Moon size={17}/>}</Button>
    <span className="mx-2 h-4 w-px bg-[var(--border)]"/>
