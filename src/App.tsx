@@ -60,6 +60,8 @@ export default function App(){
  const [history,setHistory]=useState(['home'])
  const [position,setPosition]=useState(0)
  const [collapsed,setCollapsed]=useState(false)
+ const [transferRunning,setTransferRunning]=useState(false)
+ useEffect(()=>{let live=true;void window.toolDock.transfer.status().then(s=>{if(live)setTransferRunning(s.running)}).catch(()=>{});const off=window.toolDock.transfer.onChange(s=>{if(live)setTransferRunning(s.running)});return()=>{live=false;off()}},[])
  const [editor,setEditor]=useState<Editor>(null)
  const [unsaved,setUnsaved]=useState(false)
  const [pending,setPending]=useState<{kind:'push';destination:string}|{kind:'move';index:number}|null>(null)
@@ -98,7 +100,7 @@ export default function App(){
  }
  return <MotionPreferenceContext.Provider value={ws.settings.motion}><MotionConfig reducedMotion={motionOff?'always':'never'}><DialogProvider><NotificationProvider position={ws.settings.notificationPosition} previewPositionChanges={!ws.busy} onOpenTransfer={()=>{navigate('tool:builtin-file-transfer');setTimeout(()=>window.dispatchEvent(new Event('tooldock:show-incoming')),320)}}>
   <div className={'flex h-screen w-screen flex-col overflow-hidden bg-[var(--background)] text-[var(--foreground)] '+(ws.settings.theme==='dark'?'dark':'')}>
-   <HeaderBar back={()=>stepHistory(position-1)} forward={()=>stepHistory(position+1)} canBack={position>0} canForward={position<history.length-1} title={title} onAddCategory={()=>openEditor({kind:'category'})} onAddTool={()=>openEditor({kind:'tool'})} settings={ws.settings} onTheme={()=>void ws.setPreference('theme',ws.settings.theme==='dark'?'light':'dark')}/>
+   <HeaderBar back={()=>stepHistory(position-1)} forward={()=>stepHistory(position+1)} canBack={position>0} canForward={position<history.length-1} title={title} onAddCategory={()=>openEditor({kind:'category'})} onAddTool={()=>openEditor({kind:'tool'})} settings={ws.settings} onTheme={()=>void ws.setPreference('theme',ws.settings.theme==='dark'?'light':'dark')} transferRunning={transferRunning} onOpenTransfer={()=>navigate('tool:builtin-file-transfer')}/>
    <div className="relative flex min-h-0 flex-1">
     <Sidebar ws={ws} active={active} onGo={navigate} onEditCat={c=>openEditor({kind:'category',item:c})} onEditTool={t=>openEditor({kind:'tool',item:t})} onAdd={()=>openEditor({kind:'tool'})} collapsed={collapsed} setCollapsed={setCollapsed}/>
     {!collapsed&&<div className="absolute top-0 z-20 h-full w-1 cursor-col-resize hover:bg-indigo-500/40" style={{left:ws.settings.sidebarWidth-2}} onPointerDown={e=>{drag.current={startX:e.clientX,startWidth:ws.settings.sidebarWidth};e.currentTarget.setPointerCapture(e.pointerId)}} onPointerUp={e=>{if(drag.current){void setSidebarWidth(drag.current.startWidth+e.clientX-drag.current.startX);drag.current=null;e.currentTarget.releasePointerCapture(e.pointerId)}}} onPointerMove={e=>{if(drag.current){const w=Math.max(200,Math.min(440,drag.current.startWidth+e.clientX-drag.current.startX));e.currentTarget.style.left=(w-2)+'px'}}}/>}

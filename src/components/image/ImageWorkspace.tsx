@@ -14,6 +14,7 @@ import {zipToSink} from '@/lib/export/zip-stream'
 import {runImageWorker} from '@/lib/image/worker-client'
 import {rasterizeSafeSvg} from '@/lib/image/svg-rasterize'
 import {DialogShell} from '@/components/ui/dialog-shell'
+import {useWindowFileDrop,DropOverlay} from '@/hooks/useWindowFileDrop'
 
 type Item={id:string;file:File;preview:string;stem:string;crop?:CropRect}
 type Result={id:string;sourceId:string;name:string;blob:Blob;format:'png'|'jpg'|'webp'|'ico';width:number;height:number}
@@ -170,13 +171,12 @@ export function ImageWorkspace({kind}:{kind:'image'|'logo'}){
  const previewItem=items.find(i=>i.id===previewId)
  const previewResult=outputs.find(o=>o.sourceId===previewId&&o.format!=='ico')||null
  const ready=processedVersion===version&&!!outputs.length
- return <div className="@container mx-auto max-w-[1500px] space-y-4 p-5">
+ const dropOver=useWindowFileDrop(files=>{if(status==='running'){setError('正在处理图片，暂不允许添加');return}const actual=files.filter(f=>f.size>0||f.type!=='');if(!actual.length){setError('不支持拖入文件夹，请直接拖入图片文件');return}void add(actual)},true)
+ return <div className="relative @container mx-auto max-w-[1500px] space-y-4 p-5">
   <header className="flex flex-wrap items-center gap-3"><div className="rounded-xl bg-indigo-500/15 p-3 text-indigo-400"><ToolPageIcon size={22}/></div><div className="min-w-0 flex-1"><h1 className="text-xl font-semibold">{logo?'Logo / ICO 生成器':'图片处理'}</h1><p className="mt-1 text-xs muted">{logo?'批量生成标准尺寸 PNG、WebP、JPEG 与多帧 ICO':'图片批量缩放、压缩、格式转换与非破坏式裁剪'} · 完全本地</p></div><Button variant="ghost" disabled={!items.length} onClick={clean}><Trash2 size={14}/> 清空队列</Button></header>
-  <section className={CARD+' space-y-3'}><div onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();void add(e.dataTransfer.files)}} role="button" tabIndex={0} onKeyDown={e=>{if(e.key==='Enter'||e.key===' ')input.current?.click()}} onClick={()=>input.current?.click()} className="flex min-h-28 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[var(--border)] bg-[var(--panel-alt)] hover:border-[var(--primary)]"><Plus size={24} className="text-indigo-400"/><span className="font-medium">选择或拖拽图片到这里</span><span className="text-xs muted">{logo?'PNG / JPG / WebP / SVG':'PNG / JPG / WebP'} · 50 MiB/张 · 100 张/批</span></div>
-   <input ref={input} multiple className="hidden" type="file" accept={logo?'.png,.jpg,.jpeg,.webp,.svg':'image/png,image/jpeg,image/webp'} onChange={e=>{if(e.target.files)void add(e.target.files);e.target.value=''}}/>
-  </section>
+  <input ref={input} multiple className="hidden" type="file" accept={logo?'.png,.jpg,.jpeg,.webp,.svg':'image/png,image/jpeg,image/webp'} onChange={e=>{if(e.target.files)void add(e.target.files);e.target.value=''}}/>
   <div className="grid gap-4 @min-[900px]:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-   <section className={CARD+' min-w-0 space-y-3'}><h2 className="font-semibold">文件队列 <span className="text-xs muted">{items.length} 张</span></h2>
+   <section className={CARD+' min-w-0 space-y-3'}><div className="flex items-center justify-between"><h2 className="font-semibold">文件队列 <span className="text-xs muted">{items.length} 张</span></h2><Button size="sm" onClick={()=>input.current?.click()}><Plus size={15}/> 添加图片</Button></div>
     <div className="max-h-[490px] space-y-2 overflow-y-auto">{items.length?items.map(it=><div key={it.id} className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--panel-alt)] p-2">
       <img src={it.preview} className="h-14 w-14 shrink-0 rounded-lg object-contain" alt="源文件预览"/>
       <div className="min-w-0 flex-1"><div className="truncate text-xs" title={it.file.name}>{it.file.name}</div><div className="mt-1 text-[11px] muted">{formatFile(it.file.size)} {it.crop?'· 已裁剪':''}</div>
@@ -184,7 +184,7 @@ export function ImageWorkspace({kind}:{kind:'image'|'logo'}){
        {failures[it.id]&&<div className="flex flex-wrap items-center gap-2"><p className="text-[11px] text-red-400">{failures[it.id]}</p><Button size="sm" variant="ghost" disabled={status==='running'} onClick={()=>void process(it.id)}>重试此文件</Button></div>}
       </div>
       <div className="flex shrink-0 gap-1"><Button variant="ghost" size="icon" title="预览" onClick={()=>setPreviewId(it.id)}><Eye size={15}/></Button><Button variant="ghost" size="icon" title="裁剪" onClick={()=>setCropId(it.id)}><Scissors size={15}/></Button><Button variant="ghost" size="icon" title="移除" onClick={()=>remove(it.id)}><Trash2 size={15}/></Button></div>
-     </div>):<p className="py-10 text-center text-xs muted">还没有上传图片</p>}</div>
+     </div>):<p className="py-10 text-center text-xs muted">还未选择图片，拖动文件到窗口开始使用</p>}</div>
    </section>
    <section className={CARD+' min-w-0 space-y-4'}><h2 className="font-semibold">{logo?'尺寸与输出格式':'处理参数'}</h2>
     {logo?<><div className="space-y-2"><div className="text-xs muted">选择尺寸（px）</div><div className="flex flex-wrap gap-2">{sizes.map(s=><button key={s} onClick={()=>toggleSize(s)} className={'rounded-lg border px-3 py-2 text-xs '+(selectedSizes.includes(s)?'border-[var(--primary)] bg-[var(--selected)] text-[var(--primary)]':'border-[var(--border)]')}>{s}</button>)}</div></div>
@@ -212,5 +212,6 @@ export function ImageWorkspace({kind}:{kind:'image'|'logo'}){
   {error&&<div role="alert" className="flex items-start gap-2 whitespace-pre-wrap rounded-xl border border-red-500/30 bg-red-500/5 p-3 text-xs text-red-400"><AlertTriangle size={16}/>{error}</div>}
   {cropItem&&<ImageCropDialog open src={cropItem.preview} onClose={()=>setCropId(null)} onConfirm={r=>{setItems(v=>v.map(it=>it.id===cropItem.id?{...it,crop:r}:it));setCropId(null);change()}}/>}
   {previewItem&&<ImageCompareDialog item={previewItem} result={previewResult} onClose={()=>setPreviewId(null)}/>}
+  <DropOverlay visible={dropOver} />
  </div>
 }

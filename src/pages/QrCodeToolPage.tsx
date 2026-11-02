@@ -9,6 +9,7 @@ import {QR_THEMES,QR_SIZES,QR_DOT_STYLES,QR_EYE_STYLES,defaultQrConfig,qrPayload
 import {processQrLogo} from '@/lib/qr/logo'
 import {qrBlob,type QrSnapshot,type QrExportFormat} from '@/lib/qr/render'
 import {verifyQrBlob,type ScanResult} from '@/lib/qr/verify'
+import {useWindowFileDrop,DropOverlay} from '@/hooks/useWindowFileDrop'
 const CARD='min-w-0 space-y-4 rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5'
 type Rendered={snapshot:QrSnapshot;url:string;scan:ScanResult}
 const safeText=(n:number)=>Number.isFinite(n)?String(n):''
@@ -95,7 +96,8 @@ export function QrCodeToolPage(){
   finally{if(token)await window.toolDock.export.cancel(token).catch(()=>{})}
  }
  const bytes=new TextEncoder().encode(cfg.kind==='url'?cfg.url.trim():cfg.text).length
- return <div className="@container mx-auto max-w-[1520px] space-y-4 p-5">
+ const dropOver=useWindowFileDrop(files=>{const found=files.find(f=>/\.(png|jpe?g|webp)$/i.test(f.name)&&f.size>0&&f.size<=2*1024*1024);if(found){changeLogo(found);if(files.length>1)setLogoError('只使用第一张有效图片')}else setLogoError('请拖入不超过 2 MiB 的 PNG、JPG 或 WebP 图片')})
+ return <div className="relative @container mx-auto max-w-[1520px] space-y-4 p-5">
   <header className="flex flex-wrap items-center gap-3"><span className="rounded-xl bg-indigo-500/15 p-3 text-indigo-400"><ToolPageIcon size={24}/></span>
    <div className="flex-1"><h1 className="text-xl font-semibold">二维码工具</h1><p className="mt-1 text-xs muted">文字与链接 · 主题 · 配色 · Logo · 纯本地生成</p></div>
    <span className="rounded-full border border-[var(--border)] px-3 py-1 text-xs muted">不上传数据</span>
@@ -157,5 +159,6 @@ export function QrCodeToolPage(){
     {exported&&<p role="status" className="text-xs text-emerald-400">二维码已保存到所选文件位置。</p>}
    </section>
   </div>
+  <DropOverlay visible={dropOver} />
  </div>
 }

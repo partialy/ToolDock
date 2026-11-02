@@ -7,6 +7,7 @@ import {ImageEncodingInput} from '@/components/image-encoding/ImageEncodingInput
 import {ImageEncodingResult,type EncodingResultState} from '@/components/image-encoding/ImageEncodingResult'
 import {startEncodingJob} from '@/lib/image-encoding/worker-client'
 import {IMAGE_ENCODING_MAX_BYTES} from '@/lib/image-encoding/format'
+import {useWindowFileDrop,DropOverlay} from '@/hooks/useWindowFileDrop'
 
 const CHUNK=256*1024
 type Direction='encode'|'decode'
@@ -87,7 +88,8 @@ export function ImageEncodingPage(){
   }catch(e){if(id)await window.toolDock.export.cancel(id).catch(()=>{});setError('导出失败：'+String(e))}
  }
  const reset=()=>{setFile(null);setText('');setResult(null);setResultVersion(-1);change()}
- return <div className="@container mx-auto max-w-[1480px] space-y-4 p-5">
+ const dropOver=useWindowFileDrop(files=>{const found=files.find(f=>/\.(png|jpe?g|webp|gif|bmp|ico)$/i.test(f.name)&&f.size>0&&f.size<=IMAGE_ENCODING_MAX_BYTES);if(found){setUploadedFile(found);if(files.length>1)setError('只取第一张有效图片')}else setError('未找到符合格式和大小要求的图片文件')},direction==='encode')
+ return <div className="relative @container mx-auto max-w-[1480px] space-y-4 p-5">
   <header className="flex flex-wrap items-center gap-3">
    <span className="rounded-xl bg-indigo-500/15 p-3 text-indigo-400"><ToolPageIcon size={23}/></span>
    <div className="min-w-0 flex-1"><h1 className="text-xl font-semibold">图片编码</h1><p className="mt-1 text-xs muted">图片与 Base64 / Data URL 双向无损转换 · 纯本地、不上传</p></div>
@@ -108,5 +110,6 @@ export function ImageEncodingPage(){
   {error&&<p role="alert" className="whitespace-pre-wrap rounded-xl border border-red-500/30 bg-red-500/5 p-3 text-xs text-red-400">{error}</p>}
   {exported&&<p role="status" className="flex items-center gap-2 text-xs text-emerald-500"><Copy size={14}/> 内容已成功复制或保存</p>}
   <p className="text-xs muted">保持源图片的原始字节，GIF 动画、元数据不会因编码转换被重新压缩。大文本只显示前 2000 字符；操作中不使用网络。</p>
+  <DropOverlay visible={dropOver} />
  </div>
 }

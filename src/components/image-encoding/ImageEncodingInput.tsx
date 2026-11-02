@@ -16,7 +16,7 @@ export function ImageEncodingInput({direction,file,text,onFile,onText,onError}:{
  return <section className="min-w-0 space-y-3 rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4">
   <div className="flex items-center justify-between"><h2 className="text-sm font-semibold">输入</h2>{(file||text)&&<Button size="sm" variant="ghost" onClick={()=>{onFile(null);onText('')}}><Trash2 size={14}/> 清空输入</Button>}</div>
   {direction==='encode'?<>
-   <button type="button" onClick={()=>ref.current?.click()} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();load(e.dataTransfer.files[0])}} className="flex min-h-44 w-full flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-[var(--border)] bg-[var(--panel-alt)] p-5 text-center transition-colors hover:border-[var(--primary)]/60 focus-visible:border-[var(--primary)]">
+   <button type="button" onClick={()=>ref.current?.click()} className="flex min-h-44 w-full flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-[var(--border)] bg-[var(--panel-alt)] p-5 text-center transition-colors hover:border-[var(--primary)]/60 focus-visible:border-[var(--primary)]">
     <Upload size={24} className="text-indigo-400"/><span className="text-sm font-medium">点击或拖拽图片</span><span className="text-xs muted">PNG / JPEG / WebP / GIF / BMP / ICO · 不超过 20 MiB</span>
    </button>
    <input ref={ref} type="file" className="hidden" aria-label="选择需要编码的图片" accept=".png,.jpg,.jpeg,.webp,.gif,.bmp,.ico" onChange={e=>{load(e.target.files?.[0]);e.currentTarget.value=''}}/>

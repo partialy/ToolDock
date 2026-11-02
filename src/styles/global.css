@@ -34,3 +34,14 @@ textarea:focus-visible{border-color:var(--primary)}
 .hoverable:hover{background:var(--hover)}
 .text-primary{color:var(--primary)}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important}}
+
+/* File transfer status: the original line-md vertical arrow path, repeating only while active. */
+.transfer-pill svg path{stroke-dashoffset:0}
+.transfer-pill.is-animated .transfer-icon-lines{animation:transfer-lines 3s linear infinite}
+.transfer-pill.is-animated .transfer-icon-arrows{animation:transfer-arrows 3s linear infinite}
+.transfer-pill.is-animated .transfer-letter{animation:transfer-word 5s linear infinite}
+@keyframes transfer-lines{0%{stroke-dashoffset:14}13.333%,99.9%{stroke-dashoffset:0}100%{stroke-dashoffset:14}}
+@keyframes transfer-arrows{0%,13.333%{stroke-dashoffset:8}20%,99.9%{stroke-dashoffset:0}100%{stroke-dashoffset:8}}
+@keyframes transfer-word{0%,5%,37%,100%{opacity:1}13%,23%{opacity:.35}}
+@media(max-width:1100px){.transfer-pill-label{display:none}}
+@media(prefers-reduced-motion:reduce){.transfer-pill.is-animated .transfer-icon-lines,.transfer-pill.is-animated .transfer-icon-arrows,.transfer-pill.is-animated .transfer-letter{animation:none}}
