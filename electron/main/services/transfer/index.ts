@@ -396,6 +396,7 @@ export class FileTransferService extends EventEmitter {
   if(selectedIds.length>10000||selectedIds.some(id=>!/^[0-9a-f-]{36}$/i.test(id)))return sendJson(res,400,{error:'所选文件列表无效'})
   const ids=selectedIds.length?[...new Set(selectedIds)]:[...this.shares.keys()]
   if(!ids.length)return sendJson(res,400,{error:'当前没有共享文件'})
+  for(const id of ids)if(this.shares.get(id)?.kind==='file')await this.readShare(id)
   const plan=await this.tree.expandZip(ids)
   if(!plan.entries.length)return sendJson(res,400,{error:'没有可下载的项目'})
   const archive=new yazl.ZipFile()
