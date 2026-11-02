@@ -29,6 +29,7 @@
  <nav class="tabbar" aria-label="文件快传模式"><button type="button" id="tab-download" class="tab active" aria-selected="true"><svg><use href="#i-download"/></svg> 接收文件</button><button type="button" id="tab-upload" class="tab" aria-selected="false"><svg><use href="#i-upload"/></svg> 发送到电脑</button></nav>
  <div id="panel-download" class="pane">
   <div class="section-heading"><div><h2>共享文件 <span id="share-count" class="count">0</span></h2><p>选择文件，单独下载或一次打包接收</p></div><button type="button" id="refresh" class="icon-button" aria-label="刷新共享文件" title="刷新"><svg><use href="#i-refresh"/></svg></button></div>
+  <nav id="breadcrumbs" class="breadcrumbs" aria-label="当前目录"></nav>
   <div class="selection-bar"><button id="select-all" class="text-button" type="button">全选文件</button><span id="selection-summary">尚未选择文件</span></div>
   <div id="shares" class="file-list"></div>
   <div id="download-selection" class="selected-area" hidden><div class="selection-title">已选文件 <span id="selected-download-count"></span></div><div id="download-selected-list" class="selection-chips"></div></div>

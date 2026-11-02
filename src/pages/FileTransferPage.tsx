@@ -1,5 +1,5 @@
 import {useCallback,useEffect,useMemo,useState} from 'react'
-import {ArrowDownToLine,ArrowUpFromLine,BellRing,Check,Copy,Download,FolderOpen,HardDrive,MonitorUp,Plus,Power,RefreshCw,ShieldCheck,Trash2,Users,Wifi,X} from 'lucide-react'
+import {ArrowDownToLine,ArrowUpFromLine,BellRing,Check,Copy,Download,FolderOpen,Folder,FolderPlus,ChevronDown,ChevronRight,History,HardDrive,MonitorUp,Plus,Power,RefreshCw,ShieldCheck,Trash2,Users,Wifi,X} from 'lucide-react'
 import {Button} from '@/components/ui/button'
 import {SelectField} from '@/components/ui/select-field'
 import {ToolPageIcon} from '@/components/ui/tool-page-icon'
@@ -7,7 +7,9 @@ import {SwitchField} from '@/components/ui/switch-field'
 import {useDialog} from '@/components/ui/dialog-provider'
 import {qrBlob} from '@/lib/qr/render'
 import {defaultQrConfig} from '@/lib/qr/config'
-import type {TransferSnapshot,TransferPreferences} from '@/shared/fileTransferModels'
+import type {TransferSnapshot,TransferPreferences,DirectoryPage,DirectoryStats,AddSourcesResult} from '@/shared/fileTransferModels'
+import {useWindowFileDrop,DropOverlay} from '@/hooks/useWindowFileDrop'
+import {ShareHistoryDialog} from '@/components/ShareHistoryDialog'
 const CARD='min-w-0 space-y-4 rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5'
 const human=(n:number)=>n>=1024**3?(n/1024**3).toFixed(2)+' GiB':n>=1024**2?(n/1024**2).toFixed(1)+' MiB':(n/1024).toFixed(1)+' KiB'
 const fallback=(v:unknown)=>v instanceof Error?v.message:String(v)
@@ -20,6 +22,10 @@ export function FileTransferPage(){
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[success,setSuccess]=useState('')
  const pending=snapshot?.incoming.filter(x=>x.status==='pending')||[]
  const [checked,setChecked]=useState<string[]>([])
+ const [historyOpen,setHistoryOpen]=useState(false)
+ const [expanded,setExpanded]=useState<string[]>([])
+ const [directories,setDirectories]=useState<Record<string,DirectoryPage>>({})
+ const [directoryStats,setDirectoryStats]=useState<Record<string,DirectoryStats>>({})
  const load=useCallback(()=>window.toolDock.transfer.status().then(next=>{setSnapshot(next);setSelectedIp(old=>old||next.address||next.interfaces[0]?.address||'')}),[])
  useEffect(()=>{void load().catch(e=>setError(fallback(e)));return window.toolDock.transfer.onChange(next=>setSnapshot(next))},[load])
  useEffect(()=>{
@@ -68,8 +74,28 @@ export function FileTransferPage(){
   if(!await dialog.confirm({title:'拒绝接收文件',description:'拒绝 '+ids.length+' 个文件将立即删除隔离暂存中的内容，无法从电脑恢复。',variant:'danger',confirmText:'确认拒绝'}))return
   await run(()=>window.toolDock.transfer.rejectMany(ids),'已拒绝并清理暂存文件');setChecked([])
  }
+ const addDropped=async(files:File[])=>{
+  const paths=files.map(f=>window.toolDock.transfer.pathForDroppedFile(f)).filter(Boolean)
+  if(!paths.length){setError('无法从拖入项目获取本机路径，请使用“添加文件夹”或“添加文件”按钮');return}
+  try{const result=await window.toolDock.transfer.addSources(paths);await load();setError(result.errors.join('\n'));setSuccess('已添加 '+result.added+' 项，跳过 '+result.skipped+' 项')}catch(e){setError(fallback(e))}
+ }
+ const dropOver=useWindowFileDrop(addDropped)
+ const toggleFolder=async(id:string)=>{
+  if(expanded.includes(id)){setExpanded(old=>old.filter(x=>x!==id));return}
+  setExpanded(old=>[...old,id]);await loadDirectory(id)
+ }
+ const loadDirectory=async(id:string,cursor?:string)=>{
+  try{const page=await window.toolDock.transfer.directory(id,cursor);setDirectories(old=>({...old,[id]:cursor?{...page,items:[...(old[id]?.items||[]),...page.items]}:page}))}
+  catch(e){setError(fallback(e))}
+ }
+ const renderDirectory=(id:string):React.ReactNode=>{
+  const page=directories[id];if(!page)return <p className="py-2 text-xs muted">正在加载目录...</p>
+  return <div className="space-y-1">{page.items.map(entry=><div key={entry.id}><div className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs"><button className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={()=>entry.kind==='directory'?void toggleFolder(entry.id):undefined}>{entry.kind==='directory'?(expanded.includes(entry.id)?<ChevronDown size={13}/>:<ChevronRight size={13}/>):<span className="w-[13px]"/>}{entry.kind==='directory'?<Folder size={14} className="text-indigo-400"/>:<HardDrive size={14}/>}<span className="min-w-0 truncate">{entry.name}</span></button><span className="muted">{entry.kind==='file'?human(entry.size):''}</span></div>{entry.kind==='directory'&&expanded.includes(entry.id)&&<div className="ml-5 border-l border-[var(--border)] pl-2">{renderDirectory(entry.id)}</div>}</div>)}{page.nextCursor&&<Button size="sm" variant="ghost" onClick={()=>void loadDirectory(id,page.nextCursor||undefined)}>加载更多</Button>}</div>
+ }
+ const inspectFolder=async(id:string)=>{try{const result=await window.toolDock.transfer.directoryStats(id);setDirectoryStats(old=>({...old,[id]:result}))}catch(e){setError(fallback(e))}}
+ const restoreHistory=(result:AddSourcesResult)=>{void load();setError(result.errors.join('\n'));setSuccess('恢复 '+result.added+' 项，跳过 '+result.skipped+' 项')}
  const tabs=[{id:'shares',name:'分享文件',count:snapshot?.shares.length||0},{id:'incoming',name:'待接收',count:pending.length},{id:'tasks',name:'传输记录',count:snapshot?.tasks.length||0},{id:'devices',name:'已连接设备',count:snapshot?.devices.length||0}] as const
- return <div className="@container mx-auto max-w-[1460px] space-y-4 p-5">
+ return <div className="relative @container mx-auto max-w-[1460px] space-y-4 p-5">
   <header className="flex flex-wrap items-center gap-3"><span className="rounded-xl bg-indigo-500/15 p-3 text-indigo-400"><ToolPageIcon size={24}/></span><div className="min-w-0 flex-1"><h1 className="text-xl font-semibold">文件快传</h1><p className="mt-1 text-xs muted">在可信局域网内共享文件、接收设备上传 · 纯本地传输</p></div>
    <span role="status" className={'rounded-full px-3 py-1.5 text-xs '+(snapshot?.running?'bg-emerald-500/10 text-emerald-400':'bg-[var(--panel-alt)] muted')}>{snapshot?.running?'● 运行中':'○ 未启动'}</span>
   </header>
@@ -104,9 +130,12 @@ export function FileTransferPage(){
   </div>
   <section className={CARD}>
    <div className="flex flex-wrap gap-2 border-b border-[var(--border)] pb-3" role="tablist" aria-label="文件快传功能">{tabs.map(t=><button role="tab" aria-selected={tab===t.id} key={t.id} className={'rounded-lg px-3 py-2 text-xs '+(tab===t.id?'bg-indigo-500/15 font-semibold text-indigo-400':'hover:bg-[var(--hover)]')} onClick={()=>setTab(t.id)}>{t.name} <span className="muted">{t.count}</span></button>)}</div>
-   {tab==='shares'&&<div className="space-y-3"><div className="flex items-center justify-between"><div className="text-xs muted">只有这里明确选择的文件可以被下载；移除分享不会删除电脑中的原文件。</div><Button size="sm" variant="primary" onClick={()=>void run(()=>window.toolDock.transfer.chooseShares(),'分享列表已更新')}><Plus size={15}/> 添加文件</Button></div>
-    {!snapshot?.shares.length&&<p className="py-12 text-center text-sm muted">还没有共享文件。点击“添加文件”选择任意类型的文件。</p>}
-    {snapshot?.shares.map(s=><div key={s.id} className="flex items-center gap-3 border-b border-[var(--border)] py-3"><HardDrive size={17} className="text-indigo-400"/><div className="min-w-0 flex-1"><p className="truncate text-xs font-medium" title={s.name}>{s.name}</p><p className="mt-1 text-[11px] muted">{human(s.size)} · {s.status==='ready'?'可下载':'文件已变化/丢失'}</p></div><Button size="sm" variant="ghost" onClick={()=>void run(()=>window.toolDock.transfer.removeShare(s.id),'已取消共享，不影响原文件')}><X size={15}/> 移除</Button></div>)}
+   {tab==='shares'&&<div className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-2"><div className="text-xs muted">共享原路径，不复制文件；文件夹包含嵌套目录和隐藏文件。移除只取消共享。</div><div className="flex flex-wrap gap-2"><Button size="sm" onClick={()=>setHistoryOpen(true)}><History size={15}/>历史记录</Button><Button size="sm" onClick={()=>void run(()=>window.toolDock.transfer.chooseFolders(),'已添加分享文件夹')}><FolderPlus size={15}/>添加文件夹</Button><Button size="sm" variant="primary" onClick={()=>void run(()=>window.toolDock.transfer.chooseFiles(),'已添加分享文件')}><Plus size={15}/>添加文件</Button></div></div>
+    {!snapshot?.shares.length&&<p className="py-12 text-center text-sm muted">还没有共享文件。拖动文件或文件夹到窗口开始分享，也可以点击上方按钮添加。</p>}
+    {snapshot?.shares.map(s=><div key={s.id} className="border-b border-[var(--border)] py-3">
+      <div className="flex items-center gap-3"><button type="button" className="flex shrink-0 items-center gap-1" disabled={s.kind!=='directory'} onClick={()=>void toggleFolder(s.id)}>{s.kind==='directory'?(expanded.includes(s.id)?<ChevronDown size={14}/>:<ChevronRight size={14}/>):<span className="w-[14px]"/>}{s.kind==='directory'?<Folder size={18} className="text-indigo-400"/>:<HardDrive size={17} className="text-indigo-400"/>}</button><div className="min-w-0 flex-1"><p className="truncate text-xs font-medium" title={s.name}>{s.name}</p><p className="mt-1 truncate text-[11px] muted" title={s.path}>{s.path||''} · {s.kind==='directory'?'文件夹':human(s.size)} · {s.status==='ready'?'可分享':'源文件已变化/丢失'}</p>{directoryStats[s.id]&&<p className="text-[11px] muted">{directoryStats[s.id].files} 个文件 / {directoryStats[s.id].directories} 个子目录 · {human(directoryStats[s.id].bytes)}{directoryStats[s.id].truncated?'（仅统计前 20000 项）':''}</p>}</div>{s.kind==='directory'&&<Button size="sm" variant="ghost" onClick={()=>void inspectFolder(s.id)}>详情</Button>}<Button size="sm" variant="ghost" onClick={()=>void run(()=>window.toolDock.transfer.removeShare(s.id),'已取消共享，不影响原文件')}><X size={15}/> 移除</Button></div>
+      {s.kind==='directory'&&expanded.includes(s.id)&&<div className="ml-7 mt-2 border-l border-[var(--border)] pl-3">{renderDirectory(s.id)}</div>}
+    </div>)}
    </div>}
    {tab==='incoming'&&<div className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-2"><div className="text-xs muted">远端文件上传完毕后才会列在这里，电脑确认前绝不保存到正式接收目录。</div><div className="flex gap-2"><Button size="sm" disabled={!checked.length} onClick={()=>void approve(checked)}><Check size={14}/> 批量接收</Button><Button size="sm" disabled={!checked.length} variant="danger" onClick={()=>void reject(checked)}><Trash2 size={14}/> 批量拒绝</Button></div></div>
     {!pending.length&&<p className="py-12 text-center text-sm muted">暂无等待接收的文件</p>}
@@ -115,6 +144,8 @@ export function FileTransferPage(){
    {tab==='tasks'&&<div className="space-y-3">{!snapshot?.tasks.length&&<p className="py-12 text-center text-sm muted">本次会话暂无传输记录</p>}{snapshot?.tasks.map(t=><div className="space-y-2 border-b border-[var(--border)] py-2" key={t.id}><div className="flex justify-between gap-3 text-xs"><span className="truncate">{t.direction==='download'?'下载':'上传'} · {t.name}</span><span className="muted">{t.status}</span></div><progress value={t.completed} max={t.total} className="w-full"/><p className="text-[11px] muted">{human(t.completed)} / {human(t.total)} · {t.ip}</p>{['running','uploading','paused'].includes(t.status)&&<Button size="sm" variant="danger" onClick={()=>void dialog.confirmAction({title:'取消传输任务',description:'取消「'+t.name+'」传输？未接收的暂存内容将被删除。',variant:'danger',confirmText:'取消任务',onConfirm:()=>window.toolDock.transfer.cancelTask(t.id)})}>取消任务</Button>}</div>)}</div>}
    {tab==='devices'&&<div className="space-y-3">{!snapshot?.devices.length&&<p className="py-12 text-center text-sm muted">暂无已授权设备</p>}{snapshot?.devices.map(device=><div key={device.id} className="flex flex-wrap items-center gap-3 border-b border-[var(--border)] py-3"><Users size={18}/><div className="min-w-0 flex-1"><p className="truncate text-xs">{device.agent}</p><p className="text-[11px] muted">{device.ip} · 最后活动：{new Date(device.lastSeen).toLocaleTimeString()}</p></div><Button size="sm" variant="danger" onClick={()=>void dialog.confirmAction({title:'断开设备',description:'是否立即撤销 '+device.ip+' 的访问权限？',variant:'danger',onConfirm:async()=>{await window.toolDock.transfer.revokeDevice(device.id)}})}>断开</Button></div>)}</div>}
   </section>
+  <DropOverlay visible={dropOver} label="释放以分享文件或文件夹"/>
+  <ShareHistoryDialog open={historyOpen} onClose={()=>setHistoryOpen(false)} onRestored={restoreHistory}/>
   {error&&<p role="alert" className="rounded-xl border border-red-500/30 p-3 text-xs text-red-400">{error}</p>}{success&&<p role="status" className="text-xs text-emerald-400">{success}</p>}
  </div>
 }

@@ -2,7 +2,7 @@ import './style.css'
 import {sha256} from '@noble/hashes/sha2.js'
 import {bytesToHex} from '@noble/hashes/utils.js'
 
-type Share={id:string;name:string;size:number;status:'ready'|'changed'|'missing'}
+type Share={id:string;name:string;size:number;kind:'file'|'directory';rootId?:string;status:'ready'|'changed'|'missing'}
 type Up={id:string;name:string;size:number;received:number;status:string}
 type Selection={key:string;file:File}
 type TransferJob={id:string;offset:number;file:File;row:HTMLElement;button:HTMLButtonElement;paused:boolean;cancelled:boolean;running:boolean;finished:boolean}
@@ -17,7 +17,8 @@ const selected=new Map<string,Selection>()
 const selectedDownload=new Set<string>()
 const jobs=new Map<string,TransferJob>()
 const queued:TransferJob[]=[]
-let visibleShares:Share[]=[],nextKey=0,active=0,uploadEnabled=false
+let visibleShares:Share[]=[],rootShares:Share[]=[],crumbs:{id:string;name:string}[]=[],nextKey=0,active=0,uploadEnabled=false
+const knownShares=new Map<string,Share>()
 const err=(s:string)=>{$('error').textContent=s;$('error').hidden=!s}
 const label=(status:string)=>({uploading:'上传中',paused:'已暂停',pending:'等待电脑确认',accepted:'电脑已接收',rejected:'电脑已拒绝',failed:'失败',cancelled:'已取消'} as Record<string,string>)[status]||status
 
@@ -56,17 +57,17 @@ function currentPanel(mode:'download'|'upload'){
  $('tab-download').setAttribute('aria-selected',String(!uploading));$('tab-upload').setAttribute('aria-selected',String(uploading))
 }
  function renderDownloadSelection(){
- const matches=visibleShares.filter(s=>selectedDownload.has(s.id)&&s.status==='ready')
- $('selection-summary').textContent=matches.length?'已选 '+matches.length+' 个 · '+human(matches.reduce((n,s)=>n+s.size,0)):'尚未选择文件'
- $('select-all').textContent=matches.length===visibleShares.filter(s=>s.status==='ready').length&&matches.length?'取消全选':'全选文件'
+ const matches=[...selectedDownload].map(id=>knownShares.get(id)).filter((s):s is Share=>Boolean(s&&s.status==='ready'))
+ $('selection-summary').textContent=matches.length?'已选 '+matches.length+' 项 · 文件合计 '+human(matches.reduce((n,s)=>n+(s.kind==='file'?s.size:0),0)):'尚未选择文件'
+ const ready=visibleShares.filter(s=>s.status==='ready')
+ $('select-all').textContent=ready.length>0&&ready.every(s=>selectedDownload.has(s.id))?'取消全选':'全选当前目录'
  const selectedLink=$<HTMLAnchorElement>('download-selected')
- if(matches.length)selectedLink.href=matches.length===1?'/api/files/'+encodeURIComponent(matches[0].id):'/api/zip?'+new URLSearchParams(matches.map(s=>['id',s.id])).toString()
+ if(matches.length===1&&matches[0].kind==='file')selectedLink.href='/api/files/'+encodeURIComponent(matches[0].id)
+ else if(matches.length)selectedLink.href='#'
  else selectedLink.removeAttribute('href')
- selectedLink.setAttribute('aria-disabled',String(!matches.length))
- selectedLink.tabIndex=matches.length?0:-1
+ selectedLink.setAttribute('aria-disabled',String(!matches.length));selectedLink.tabIndex=matches.length?0:-1
  selectedLink.querySelector('span')!.textContent=matches.length?'下载所选 ('+matches.length+')':'下载所选文件'
- $('download-selection').hidden=!matches.length
- $('selected-download-count').textContent=matches.length+' 个'
+ $('download-selection').hidden=!matches.length;$('selected-download-count').textContent=matches.length+' 项'
  const list=$('download-selected-list');list.replaceChildren()
  for(const f of matches){
   const chip=document.createElement('span');chip.className='chip'
@@ -76,31 +77,77 @@ function currentPanel(mode:'download'|'upload'){
   chip.append(name,remove);list.append(chip)
  }
 }
+async function downloadArchive(ids:string[]){
+ const ticket=await post('/api/archive-selections',{ids}) as {url:string}
+ window.location.assign(ticket.url)
+}
+function renderBreadcrumbs(){
+ const root=$('breadcrumbs');root.replaceChildren()
+ const items=[{id:'',name:'分享文件'},...crumbs]
+ items.forEach((part,i)=>{
+  if(i){const arrow=document.createElement('span');arrow.textContent='›';arrow.className='crumb-separator';root.append(arrow)}
+  const b=document.createElement('button');b.type='button';b.textContent=part.name;b.className='crumb'+(i===items.length-1?' current':'')
+  b.onclick=()=>void browseAt(i-1).catch(e=>err(String(e)))
+  root.append(b)
+ })
+}
+async function browseAt(index:number){
+ if(index<0){crumbs=[];visibleShares=rootShares;renderShares();return}
+ const target=crumbs[index]
+ const entries=await loadPage(target.id)
+ crumbs=crumbs.slice(0,index+1);visibleShares=entries;renderShares()
+}
+async function loadPage(parentId:string){
+ const items:Share[]=[];let cursor:string|null=null
+ do{
+  const q=new URLSearchParams({parent:parentId});if(cursor)q.set('cursor',cursor)
+  const page=await json('/api/tree?'+q) as {items:Share[];nextCursor:string|null}
+  items.push(...page.items);cursor=page.nextCursor
+ }while(cursor&&items.length<20000)
+ items.forEach(s=>knownShares.set(s.id,s))
+ return items
+}
+async function openFolder(folder:Share){
+ const entries=await loadPage(folder.id)
+ crumbs.push({id:folder.id,name:folder.name})
+ visibleShares=entries;renderShares()
+}
 function renderShares(){
  const container=$('shares');container.replaceChildren()
+ renderBreadcrumbs()
  $('share-count').textContent=String(visibleShares.length)
- $('download-all').hidden=!visibleShares.length
+ $('download-all').hidden=!rootShares.length
  if(!visibleShares.length){
   const empty=document.createElement('div');empty.className='empty'
   const graphic=document.createElement('div');graphic.className='empty-illustration';graphic.append(icon('file'))
-  empty.append(graphic,Object.assign(document.createElement('span'),{textContent:'电脑暂未分享文件'}));container.append(empty)
+  empty.append(graphic,Object.assign(document.createElement('span'),{textContent:crumbs.length?'当前文件夹为空':'电脑暂未分享文件'}));container.append(empty)
  }
  for(const file of visibleShares){
   const row=document.createElement('div');row.className='entry'
   const chosen=selectedDownload.has(file.id)
   const select=button((chosen?'取消选择 ':'选择 ')+file.name)
-  select.className='checkmark'+(chosen?' selected':'')
-  select.append(icon('check'));select.disabled=file.status!=='ready'
-  select.setAttribute('aria-pressed',String(chosen))
+  select.className='checkmark'+(chosen?' selected':'');select.append(icon('check'))
+  select.disabled=file.status!=='ready';select.setAttribute('aria-pressed',String(chosen))
   select.onclick=()=>{if(chosen)selectedDownload.delete(file.id);else selectedDownload.add(file.id);renderShares()}
-  const link=document.createElement('a');link.className='download-button';link.href='/api/files/'+encodeURIComponent(file.id);link.download=file.name
+  const link=document.createElement('a');link.className='download-button';link.href=file.kind==='directory'?'#':'/api/files/'+encodeURIComponent(file.id)
+  if(file.kind==='directory'){
+   link.onclick=e=>{e.preventDefault();void downloadArchive([file.id]).catch(e=>err(String(e)))}
+  }else link.download=file.name
   link.append(icon('download'));link.title='下载 '+file.name
   link.setAttribute('aria-label','下载 '+file.name)
   if(file.status!=='ready'){link.removeAttribute('href');link.setAttribute('aria-disabled','true')}
-  const {info}=fileDetails(file.name,human(file.size)+(file.status==='ready'?'':' · 文件不可用'))
-  row.append(select,rowIcon(file.name),info,link);container.append(row)
+  const {info}=fileDetails(file.name,file.kind==='directory'?'文件夹 · 点击进入':human(file.size)+(file.status==='ready'?'':' · 文件不可用'))
+  const open=document.createElement('button');open.type='button';open.className='file-browse'
+  open.append(file.kind==='directory'?folderIcon():rowIcon(file.name),info)
+  if(file.kind==='directory')open.onclick=()=>void openFolder(file).catch(e=>err(String(e)))
+  else open.onclick=()=>{window.location.href='/api/files/'+encodeURIComponent(file.id)}
+  row.append(select,open,link);container.append(row)
  }
  renderDownloadSelection()
+}
+function folderIcon(){
+ const wrap=document.createElement('div');wrap.className='file-icon archive'
+ wrap.textContent='DIR';wrap.setAttribute('aria-hidden','true');return wrap
 }
 function renderSelectedUploads(){
  const root=$('selected-upload-list');root.replaceChildren()
@@ -132,9 +179,14 @@ async function login(kind:'pin'|'token',value:string){
 }
 async function refresh(){
  const status=await json('/api/status')
- visibleShares=status.downloadAllowed?status.shares as Share[]:[]
- for(const id of selectedDownload)if(!visibleShares.some(s=>s.id===id&&s.status==='ready'))selectedDownload.delete(id)
- renderShares()
+ rootShares=status.downloadAllowed?status.shares as Share[]:[]
+ rootShares.forEach(s=>knownShares.set(s.id,{...s,rootId:s.id}))
+ const visibleBefore=new Set(visibleShares.map(s=>s.id))
+ if(crumbs.length){try{await browseAt(crumbs.length-1)}catch{crumbs=[];visibleShares=rootShares;renderShares()}}
+ else{visibleShares=rootShares;renderShares()}
+ const validRoots=new Set(rootShares.map(s=>s.id)),visibleAfter=new Set(visibleShares.map(s=>s.id))
+ for(const id of selectedDownload){const entry=knownShares.get(id);if(!entry||!validRoots.has(entry.rootId||entry.id)||(visibleBefore.has(id)&&!visibleAfter.has(id)))selectedDownload.delete(id)}
+ renderDownloadSelection()
  uploadEnabled=Boolean(status.uploadAllowed)
  $('choose').toggleAttribute('disabled',!uploadEnabled)
  $('pick-files').toggleAttribute('disabled',!uploadEnabled)
@@ -220,6 +272,7 @@ async function upload(job:TransferJob){
   if(job.cancelled&&job.id)await json('/api/uploads/'+job.id,{method:'DELETE'}).catch(()=>{})
  }
 }
+$<HTMLAnchorElement>('download-selected').addEventListener('click',e=>{const selected=[...selectedDownload].map(id=>knownShares.get(id)).filter((x):x is Share=>Boolean(x));if(selected.length===1&&selected[0].kind==='file')return;e.preventDefault();if(selected.length)void downloadArchive(selected.map(x=>x.id)).catch(e=>err(String(e)))})
 $('tab-download').addEventListener('click',()=>currentPanel('download'))
 $('tab-upload').addEventListener('click',()=>currentPanel('upload'))
 $('login-form').addEventListener('submit',e=>{e.preventDefault();void login('pin',($<HTMLInputElement>('pin')).value).catch(e=>err(String(e)))})
@@ -227,7 +280,8 @@ $('refresh').addEventListener('click',()=>void refresh().catch(e=>err(String(e))
 $('select-all').addEventListener('click',()=>{
  const files=visibleShares.filter(s=>s.status==='ready')
  const all=files.length>0&&files.every(s=>selectedDownload.has(s.id))
- selectedDownload.clear();if(!all)for(const item of files)selectedDownload.add(item.id)
+ if(all)for(const item of files)selectedDownload.delete(item.id)
+ else for(const item of files)selectedDownload.add(item.id)
  renderShares()
 })
  $('pick-files').addEventListener('click',()=>{if(uploadEnabled)$<HTMLInputElement>('choose').click()})
