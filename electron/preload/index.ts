@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 const invoke=(channel:string,payload?:unknown)=>ipcRenderer.invoke(channel,payload)
 const api={
  quickLaunch:{
@@ -32,7 +32,12 @@ const api={
  },
  transfer:{
   interfaces:()=>invoke('transfer:interfaces'),status:()=>invoke('transfer:status'),start:(address:string)=>invoke('transfer:start',address),stop:()=>invoke('transfer:stop'),
-  chooseShares:()=>invoke('transfer:chooseShares'),removeShare:(id:string)=>invoke('transfer:removeShare',id),
+  pathForDroppedFile:(file:File)=>{try{return webUtils.getPathForFile(file)}catch{return ''}},
+  chooseShares:()=>invoke('transfer:chooseShares'),chooseFiles:()=>invoke('transfer:chooseFiles'),chooseFolders:()=>invoke('transfer:chooseFolders'),
+  addSources:(paths:string[])=>invoke('transfer:addSources',paths),
+  directory:(parentId:string,cursor?:string)=>invoke('transfer:directory',{parentId,cursor}),directoryStats:(id:string)=>invoke('transfer:directoryStats',id),
+  history:{list:(search?:string)=>invoke('transfer:history:list',search||''),remove:(id:string)=>invoke('transfer:history:remove',id),clear:()=>invoke('transfer:history:clear'),restore:(ids:string[])=>invoke('transfer:history:restore',ids)},
+  removeShare:(id:string)=>invoke('transfer:removeShare',id),
   chooseDirectory:()=>invoke('transfer:chooseDirectory'),setPrefs:(prefs:unknown)=>invoke('transfer:setPrefs',prefs),
   approve:(id:string)=>invoke('transfer:approve',id),reject:(id:string)=>invoke('transfer:reject',id),
   approveMany:(ids:string[])=>invoke('transfer:approveMany',ids),rejectMany:(ids:string[])=>invoke('transfer:rejectMany',ids),

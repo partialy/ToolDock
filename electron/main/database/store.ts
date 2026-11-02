@@ -8,6 +8,7 @@ import { migrateTextDiff } from './migrations/007-add-text-diff'
 import { migrateCodecPipelines } from './migrations/008-add-codec-pipelines'
 import { migrateCommandTool } from './migrations/009-add-command-tool'
 import { migrateQuickLaunch } from './migrations/010-add-quick-launch'
+import {migrateFileTransferHistory} from './migrations/011-add-file-transfer-history'
 import {TRANSFER_DEFAULTS} from '../../../src/shared/fileTransferModels'
 import { builtinById, builtinByTarget } from '../../../src/shared/builtinToolRegistry'
 import { app } from 'electron'
@@ -61,6 +62,8 @@ export function initStore() {
   migrateCodecPipelines(db)
   migrateCommandTool(db)
   migrateQuickLaunch(db)
+  migrateFileTransferHistory(db)
+
 }
 export function closeStore() { if(db?.open) { db.pragma('wal_checkpoint(TRUNCATE)'); db.close() } }
 const asCategory=(r:Record<string,unknown>):Category=>({id:String(r.id),name:String(r.name),icon:String(r.icon),sortOrder:Number(r.sort_order),visible:Boolean(r.visible),isSystem:Boolean(r.is_system)})

@@ -14,6 +14,7 @@ import { generateRsa, generateSsh, generateEc, generateAes, generateRandom } fro
 import { initLog, recordEvent, exportLogs, clearLogs } from './services/log'
 import {beginFileExport,appendExportChunk,finishFileExport,cancelFileExport,disposeAllExports} from './services/file-export'
 import {fileTransfer} from './services/transfer'
+import {listShareHistory,removeShareHistory,clearShareHistory,getShareHistory} from './database/file-transfer-history'
 import {QuickLaunchService} from './services/quick-launch'
 import {quickLaunchSaveSchema} from '../../src/shared/quickLaunchModels'
 import {appIconPath,createAppTray} from './services/app-tray'
@@ -113,6 +114,15 @@ function channels(){
  register('transfer:start',(a:unknown)=>fileTransfer.start(z.ipv4().parse(a)))
  register('transfer:stop',()=>fileTransfer.stop())
  register('transfer:chooseShares',()=>fileTransfer.chooseShares(win!))
+ register('transfer:chooseFiles',()=>fileTransfer.chooseShares(win!))
+ register('transfer:chooseFolders',()=>fileTransfer.chooseFolders(win!))
+ register('transfer:addSources',(a:unknown)=>fileTransfer.addSources(z.array(z.string().min(3).max(4096)).max(500).parse(a)))
+ register('transfer:directory',(a:unknown)=>{const p=z.object({parentId:z.uuid(),cursor:z.string().regex(/^\d+$/).optional()}).parse(a);return fileTransfer.directory(p.parentId,p.cursor)})
+ register('transfer:directoryStats',(a:unknown)=>fileTransfer.directoryStats(z.uuid().parse(a)))
+ register('transfer:history:list',async(a:unknown)=>Promise.all(listShareHistory(getDb(),z.string().max(300).parse(a)).map(async x=>{const stat=await fs.promises.lstat(x.path).catch(()=>null);return {...x,available:Boolean(stat&&!stat.isSymbolicLink()&&(x.kind==='directory'?stat.isDirectory():stat.isFile()))}})))
+ register('transfer:history:remove',(a:unknown)=>removeShareHistory(getDb(),z.uuid().parse(a)))
+ register('transfer:history:clear',()=>clearShareHistory(getDb()))
+ register('transfer:history:restore',(a:unknown)=>{const ids=z.array(z.uuid()).max(300).parse(a);return fileTransfer.addSources(getShareHistory(getDb(),ids).map(x=>x.path))})
  register('transfer:removeShare',(a:unknown)=>fileTransfer.removeShare(z.string().uuid().parse(a)))
  register('transfer:chooseDirectory',async()=>{const folder=await fileTransfer.chooseDirectory(win!);if(folder){const p=fileTransfer.getPrefs();putSetting('fileTransferPrefs',p)}return folder})
  register('transfer:setPrefs',(a:unknown)=>{const next=z.object({allowDownload:z.boolean(),allowUpload:z.boolean(),maxFileBytes:z.number().int(),maxTempBytes:z.number().int(),maxUploads:z.number().int(),maxDownloads:z.number().int()}).parse(a);const p=fileTransfer.setPrefs({...fileTransfer.getPrefs(),...next});putSetting('fileTransferPrefs',p);return p})

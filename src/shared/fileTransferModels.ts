@@ -9,7 +9,11 @@ export type TransferPreferences={
  maxDownloads:number
 }
 export type LanInterface={id:string;name:string;address:string;netmask:string}
-export type SharedFile={id:string;name:string;size:number;mtimeMs:number;status:'ready'|'changed'|'missing'}
+export type SharedFile={id:string;name:string;size:number;mtimeMs:number;status:'ready'|'changed'|'missing';kind:'file'|'directory';path?:string}
+export type ShareHistory={id:string;path:string;name:string;kind:'file'|'directory';createdAt:number;lastUsedAt:number;available?:boolean}
+export type DirectoryPage={parentId:string;items:Pick<SharedFile,'id'|'name'|'size'|'kind'|'status'>[];nextCursor:string|null;total:number}
+export type DirectoryStats={files:number;directories:number;bytes:number;truncated:boolean}
+export type AddSourcesResult={added:number;skipped:number;errors:string[]}
 export type IncomingFile={id:string;name:string;size:number;received:number;ip:string;status:'uploading'|'paused'|'pending'|'accepted'|'rejected'|'failed';savedAs?:string}
 export type DeviceInfo={id:string;ip:string;agent:string;connectedAt:number;lastSeen:number}
 export type TransferTask={id:string;name:string;direction:'upload'|'download';total:number;completed:number;status:string;ip:string}

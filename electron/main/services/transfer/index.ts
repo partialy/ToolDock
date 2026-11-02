@@ -11,7 +11,10 @@ import {interfaces,isPrivateIpv4,safeFilename,sameSubnet} from './network'
 import {LanAuth,receiveJson,sendJson} from './auth'
 import type {DeviceInfo,IncomingFile,LanInterface,SharedFile,TransferPreferences,TransferSnapshot,TransferTask} from '../../../../src/shared/fileTransferModels'
 import {TRANSFER_DEFAULTS} from '../../../../src/shared/fileTransferModels'
-type InternalShare=SharedFile&{file:string}
+import {SharedTree} from './shared-tree'
+import {saveShareHistory} from '../../database/file-transfer-history'
+import {getDb} from '../../database/store'
+type InternalShare=SharedFile&{file:string;rootId?:string}
 type Upload=IncomingFile&{temp:string;owner:string;lastActive:number;fd?:fs.FileHandle}
 const GIB=1024**3
 const HEADER={'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','Cache-Control':'no-store','Cross-Origin-Resource-Policy':'same-origin'}
@@ -23,6 +26,9 @@ export class FileTransferService extends EventEmitter {
  private mask:string|null=null
  private port:number|null=null
  private shares=new Map<string,InternalShare>()
+ private tree=new SharedTree(()=>new Map([...this.shares].map(([id,s])=>[id,{id,file:s.file,kind:s.kind,name:s.name}])))
+ private archiveTickets=new Map<string,{ids:string[];owner:string;expires:number}>()
+ private downloadRoots=new Map<string,Set<string>>()
  private uploads=new Map<string,Upload>()
  private tasks=new Map<string,TransferTask>()
  private tempRoot:string|null=null
@@ -60,26 +66,48 @@ export class FileTransferService extends EventEmitter {
   const url=this.server&&this.address&&this.port?'http://'+this.address+':'+this.port:null
   return {running:!!this.server,port:this.port,address:this.address,url,pin:this.auth?.pin||null,
    qrUrl:url&&this.auth?url+'/#token='+encodeURIComponent(this.auth.bootstrap):null,
-   interfaces:interfaces(),shares:[...this.shares.values()].map(({file,...safe})=>safe),incoming:[...this.uploads.values()].map(({temp,owner,lastActive,fd,...safe})=>safe),
+   interfaces:interfaces(),shares:[...this.shares.values()].map(({file,...safe})=>({...safe,path:file})),incoming:[...this.uploads.values()].map(({temp,owner,lastActive,fd,...safe})=>safe),
    devices:this.auth?.list()||[],tasks:[...this.tasks.values()],prefs:this.getPrefs()}
  }
  private emitChange(){this.emit('change');if(this.window&&!this.window.isDestroyed())this.window.webContents.send('transfer:changed',this.getSnapshot())}
  async chooseShares(win:BrowserWindow){
   const choice=await dialog.showOpenDialog(win,{title:'添加共享文件',properties:['openFile','multiSelections']})
-  if(choice.canceled)return this.getSnapshot().shares
-  for(const file of choice.filePaths){
-   const real=await fs.realpath(file),st=await fs.stat(real)
-   if(!st.isFile()||this.shares.size>=500)continue
-   if([...this.shares.values()].some(s=>s.file===real))continue
-   const entry:InternalShare={id:randomUUID(),file:real,name:path.basename(real),size:st.size,mtimeMs:st.mtimeMs,status:'ready'}
-   this.shares.set(entry.id,entry)
-  }
-  this.emitChange();return this.getSnapshot().shares
+  if(!choice.canceled)await this.addSources(choice.filePaths)
+  return this.getSnapshot().shares
  }
- removeShare(id:string){if(!this.shares.delete(id))throw Error('共享文件不存在');for(const [task,shareId] of this.downloadShares)if(shareId===id)this.activeResponses.get(task)?.destroy();this.emitChange()}
+ async chooseFolders(win:BrowserWindow){
+  const choice=await dialog.showOpenDialog(win,{title:'添加共享文件夹',properties:['openDirectory','multiSelections']})
+  if(!choice.canceled)await this.addSources(choice.filePaths)
+  return this.getSnapshot().shares
+ }
+ async addSources(paths:string[]){
+  const result={added:0,skipped:0,errors:[] as string[]}
+  for(const supplied of paths){
+   try{
+    if(!path.isAbsolute(supplied)||supplied.startsWith('\\\\'))throw Error('仅支持本地绝对路径')
+    const full=path.normalize(path.resolve(supplied)),st=await fs.lstat(full)
+    if(st.isSymbolicLink())throw Error('不共享符号链接或 Junction')
+    if(!st.isDirectory()&&!st.isFile())throw Error('不是普通文件或目录')
+    const real=await fs.realpath(full)
+    if(!real.toLocaleLowerCase().startsWith(path.parse(real).root.toLocaleLowerCase()))throw Error('无效路径')
+    const kind=st.isDirectory()?'directory':'file'
+    const already=[...this.shares.values()].some(s=>s.file.toLocaleLowerCase()===real.toLocaleLowerCase())
+    if(!already&&this.shares.size>=500)throw Error('本次会话最多分享 500 项')
+    if(!already){
+     const entry:InternalShare={id:randomUUID(),file:real,name:path.basename(real),size:st.isFile()?st.size:0,mtimeMs:st.mtimeMs,status:'ready',kind}
+     this.shares.set(entry.id,entry);result.added++
+    }else result.skipped++
+    saveShareHistory(getDb(),real,kind)
+   }catch(e){result.errors.push(path.basename(supplied)+': '+String(e instanceof Error?e.message:e))}
+  }
+  this.emitChange();return result
+ }
+ async directory(parentId:string,cursor?:string){try{return await this.tree.list(parentId,Number(cursor||0))}catch(e){const root=this.tree.rootFor(parentId);if(root){const source=this.shares.get(root.id);if(source){source.status='missing';this.emitChange()}}throw e}}
+ async directoryStats(id:string){return this.tree.stats(id)}
+ removeShare(id:string){if(!this.shares.delete(id))throw Error('共享文件不存在');this.tree.removeRoot(id);for(const [task,roots] of this.downloadRoots)if(roots.has(id)){const t=this.tasks.get(task);if(t)t.status='cancelled';this.activeResponses.get(task)?.destroy()}for(const [task,shareId] of this.downloadShares)if(shareId===id){const t=this.tasks.get(task);if(t)t.status='cancelled';this.activeResponses.get(task)?.destroy()}this.archiveTickets.clear();this.emitChange()}
  revokeDevice(id:string){this.auth?.revoke(id);for(const u of this.uploads.values())if(u.owner===id&&u.status==='uploading')u.status='paused';for(const [task,owner] of this.downloadOwners)if(owner===id){this.activeResponses.get(task)?.destroy();this.downloadOwners.delete(task)}this.emitChange()}
  async cancelTask(id:string){
-  if(this.activeResponses.has(id)){this.activeResponses.get(id)?.destroy();return}
+  if(this.activeResponses.has(id)){const t=this.tasks.get(id);if(t)t.status='cancelled';this.activeResponses.get(id)?.destroy();return}
   const u=this.uploads.get(id)
   if(!u||!['uploading','paused','pending'].includes(u.status))throw Error('此任务无法取消')
   if(this.inProgressUploads.has(id))throw Error('任务正在写入分片，请稍后重试')
@@ -137,7 +165,7 @@ export class FileTransferService extends EventEmitter {
   for(const socket of this.sockets)socket.destroy();this.sockets.clear()
   if(server)await new Promise<void>(resolve=>server.close(()=>resolve()))
   for(const u of this.uploads.values())await u.fd?.close().catch(()=>{})
-  this.uploads.clear();this.shares.clear();this.tasks.clear();this.inProgressUploads.clear();this.activeDownloads=0;this.activeResponses.clear();this.downloadOwners.clear();this.downloadShares.clear()
+  this.uploads.clear();this.shares.clear();this.tree.clear();this.archiveTickets.clear();this.downloadRoots.clear();this.tasks.clear();this.inProgressUploads.clear();this.activeDownloads=0;this.activeResponses.clear();this.downloadOwners.clear();this.downloadShares.clear()
   if(this.tempRoot)await fs.rm(this.tempRoot,{recursive:true,force:true}).catch(()=>{})
   this.tempRoot=null;this.emitChange()
  }
@@ -186,6 +214,12 @@ export class FileTransferService extends EventEmitter {
   if(st.size!==s.size||st.mtimeMs!==s.mtimeMs){s.status='changed';this.emitChange();throw Error('源文件已经变化，请重新添加分享')}
   return s
  }
+ private async readEntry(id:string):Promise<InternalShare>{
+  const root=this.shares.get(id)
+  if(root){if(root.kind!=='file')throw Error('文件夹不能直接按文件下载');return this.readShare(id)}
+  const node=await this.tree.resolve(id,'file')
+  return {id,name:path.basename(node.filepath),file:node.filepath,rootId:node.root.id,kind:'file',size:node.stat.size,mtimeMs:node.stat.mtimeMs,status:'ready'}
+ }
  private async handle(req:IncomingMessage,res:ServerResponse){
   const ip=(req.socket.remoteAddress||'').replace(/^::ffff:/,'')
   const host=req.headers.host||''
@@ -219,13 +253,40 @@ export class FileTransferService extends EventEmitter {
   }
   const device=this.auth?.identify(req)
   if(!device)return sendJson(res,401,{error:'请先输入访问码或扫描二维码授权'})
-  if(method==='GET'&&pathname==='/api/status')return sendJson(res,200,{shares:this.prefs.allowDownload?this.getSnapshot().shares:[],uploadAllowed:this.prefs.allowUpload,downloadAllowed:this.prefs.allowDownload,device})
+  if(method==='GET'&&pathname==='/api/status')return sendJson(res,200,{shares:this.prefs.allowDownload?this.getSnapshot().shares.map(({path,...safe})=>safe):[],uploadAllowed:this.prefs.allowUpload,downloadAllowed:this.prefs.allowDownload,device})
+  if(method==='GET'&&pathname==='/api/tree'){
+   if(!this.prefs.allowDownload)return sendJson(res,403,{error:'未开启下载权限'})
+   const parent=url.searchParams.get('parent')||''
+   const cursor=url.searchParams.get('cursor')||'0'
+   if(!/^[0-9a-f-]{36}$/i.test(parent)||!/^\d{1,8}$/.test(cursor))return sendJson(res,400,{error:'目录参数无效'})
+   const page=await this.directory(parent,cursor)
+   return sendJson(res,200,page)
+  }
+  if(method==='POST'&&pathname==='/api/archive-selections'){
+   if(!this.prefs.allowDownload)return sendJson(res,403,{error:'未开启下载权限'})
+   const body=await receiveJson(req,1024*1024)
+   const ids=body.ids
+   if(!Array.isArray(ids)||!ids.length||ids.length>10000||ids.some(id=>typeof id!=='string'||!/^[0-9a-f-]{36}$/i.test(id)))return sendJson(res,400,{error:'选中项无效'})
+   // Preflight before issuing a ticket; errors can still occur if files change later.
+   await this.tree.expandZip(ids)
+   const ticket=randomUUID()
+   this.archiveTickets.set(ticket,{ids,owner:device.id,expires:Date.now()+300000})
+   return sendJson(res,201,{url:'/api/archives/'+ticket})
+  }
+  if(method==='GET'&&pathname.startsWith('/api/archives/')){
+   if(!this.prefs.allowDownload)return sendJson(res,403,{error:'未开启下载权限'})
+   const ticket=pathname.slice('/api/archives/'.length),saved=this.archiveTickets.get(ticket)
+   if(!saved||saved.owner!==device.id||saved.expires<Date.now())return sendJson(res,404,{error:'压缩包下载链接无效或过期'})
+   this.archiveTickets.delete(ticket)
+   return this.downloadZip(res,device,saved.ids)
+  }
+
   if(method==='GET'&&pathname==='/api/uploads')return sendJson(res,200,{uploads:this.getSnapshot().incoming.filter(u=>this.uploads.get(u.id)?.owner===device.id)})
   if(method==='POST'&&pathname==='/api/logout'){this.auth?.revoke(device.id);res.setHeader('Set-Cookie','tooldock_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');return sendJson(res,200,{ok:true})}
   if((method==='GET'||method==='HEAD')&&pathname.startsWith('/api/files/')){
    if(!this.prefs.allowDownload)return sendJson(res,403,{error:'未开启下载权限'})
    const id=pathname.split('/')[3]
-   const s=await this.readShare(id)
+   const s=await this.readEntry(id)
    return this.download(req,res,s,device)
   }
   if(method==='GET'&&pathname==='/api/zip'){
@@ -321,7 +382,7 @@ export class FileTransferService extends EventEmitter {
   }
   res.writeHead(status,{'Content-Type':'application/octet-stream','Content-Disposition':"attachment; filename*=UTF-8''"+name,'Content-Length':end-start+1,'Accept-Ranges':'bytes',...(status===206?{'Content-Range':'bytes '+start+'-'+end+'/'+size}:{})})
   this.activeDownloads++
-  const id=randomUUID();this.tasks.set(id,{id,name:s.name,direction:'download',total:end-start+1,completed:0,status:'running',ip:device.ip});this.activeResponses.set(id,res);this.downloadOwners.set(id,device.id);this.downloadShares.set(id,s.id);this.emitChange()
+  const id=randomUUID();this.tasks.set(id,{id,name:s.name,direction:'download',total:end-start+1,completed:0,status:'running',ip:device.ip});this.activeResponses.set(id,res);this.downloadOwners.set(id,device.id);this.downloadShares.set(id,s.rootId||s.id);this.emitChange()
   try{
    const stream=createReadStream(s.file,{start,end})
    stream.on('data',b=>{const t=this.tasks.get(id);if(t)t.completed+=(b as Buffer).length})
@@ -332,26 +393,56 @@ export class FileTransferService extends EventEmitter {
  }
  private async downloadZip(res:ServerResponse,device:DeviceInfo,selectedIds:string[]=[]){
   if(this.activeDownloads>=this.prefs.maxDownloads)return sendJson(res,429,{error:'下载队列繁忙'})
-  if(selectedIds.length>500||selectedIds.some(id=>!/^[0-9a-f-]{36}$/.test(id)))return sendJson(res,400,{error:'所选文件列表无效'})
+  if(selectedIds.length>10000||selectedIds.some(id=>!/^[0-9a-f-]{36}$/i.test(id)))return sendJson(res,400,{error:'所选文件列表无效'})
   const ids=selectedIds.length?[...new Set(selectedIds)]:[...this.shares.keys()]
-  if(ids.some(id=>!this.shares.has(id)))return sendJson(res,404,{error:'部分共享文件已不存在'})
-  const shares=await Promise.all(ids.map(id=>this.readShare(id)))
-  if(!shares.length)return sendJson(res,400,{error:'当前没有共享文件'})
-  this.activeDownloads++
-  const archive=new yazl.ZipFile(),names=new Set<string>()
-  for(const share of shares){
-   const name=safeFilename(share.name),ext=path.extname(name),stem=name.slice(0,name.length-ext.length)
-   let entry=name,i=1;while(names.has(entry.toLowerCase()))entry=stem+' ('+(i++)+')'+ext
-   names.add(entry.toLowerCase())
-   archive.addFile(share.file,entry,{compress:!/\.(zip|7z|rar|mp4|jpg|jpeg|png|webp|avi|mkv|exe|apk)$/i.test(entry),forceZip64Format:share.size>=4*GIB})
+  if(!ids.length)return sendJson(res,400,{error:'当前没有共享文件'})
+  const plan=await this.tree.expandZip(ids)
+  if(!plan.entries.length)return sendJson(res,400,{error:'没有可下载的项目'})
+  const archive=new yazl.ZipFile()
+  archive.on('error',()=>{})
+  archive.outputStream.on('error',()=>{})
+  const taskId=randomUUID()
+  const task:TransferTask={id:taskId,name:'分享文件.zip',direction:'download',total:plan.total,completed:0,status:'running',ip:device.ip}
+  const activeStreams=new Set<ReturnType<typeof createReadStream>>()
+  const abort=()=>{for(const stream of activeStreams)stream.destroy();(archive.outputStream as import('node:stream').Readable).destroy()}
+  for(const entry of plan.entries){
+   const rel=entry.name.split(path.sep).join('/')
+   const safeParts=rel.split('/').filter(Boolean).map(x=>safeFilename(x))
+   const zipName=safeParts.join('/')+(entry.directory?'/':'')
+   if(entry.directory){archive.addEmptyDirectory(zipName,{mtime:entry.mtime});continue}
+   archive.addReadStreamLazy(zipName,{size:entry.size,mtime:entry.mtime,forceZip64Format:entry.size>=4*GIB},callback=>{
+    void (async()=>{
+     try{
+      // Validate at actual stream open, not just when the archive was planned.
+      const stat=await fs.lstat(entry.path)
+      if(!stat.isFile()||stat.isSymbolicLink()||stat.size!==entry.size||Math.abs(stat.mtimeMs-entry.mtime.getTime())>1)throw Error('源文件在打包期间发生变化')
+      const root=this.shares.get(entry.rootId)
+      if(!root)throw Error('共享已撤销')
+      const realRoot=await fs.realpath(root.file),real=await fs.realpath(entry.path)
+      const diff=path.relative(realRoot,real)
+      if(diff==='..'||diff.startsWith('..'+path.sep)||path.isAbsolute(diff))throw Error('文件路径越界')
+      const stream=createReadStream(entry.path)
+      activeStreams.add(stream)
+      stream.on('data',b=>{task.completed=Math.min(task.total,task.completed+(b as Buffer).length)})
+      stream.on('close',()=>activeStreams.delete(stream))
+      callback(null,stream)
+     }catch(e){try{callback(e,null as never)}catch{res.destroy()}}
+    })()
+   })
   }
   archive.end({forceZip64Format:true,comment:''})
+  this.activeDownloads++
+  this.tasks.set(taskId,task);this.activeResponses.set(taskId,res);this.downloadOwners.set(taskId,device.id);this.downloadRoots.set(taskId,plan.roots)
+  res.once('close',abort)
+  this.emitChange()
   res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':"attachment; filename=tooldock-shared.zip"})
-  const id=randomUUID();this.tasks.set(id,{id,name:'全部文件.zip',direction:'download',total:shares.reduce((n,v)=>n+v.size,0),completed:0,status:'running',ip:device.ip});this.activeResponses.set(id,res);this.downloadOwners.set(id,device.id);this.emitChange()
-  archive.outputStream.on('data',b=>{const t=this.tasks.get(id);if(t)t.completed+=(b as Buffer).length})
-  try{await pipeline(archive.outputStream,res);this.tasks.get(id)!.status='completed'}
-  catch{const t=this.tasks.get(id);if(t)t.status='failed';res.destroy()}
-  finally{this.activeDownloads--;this.activeResponses.delete(id);this.downloadOwners.delete(id);this.emitChange()}
+  try{await pipeline(archive.outputStream,res);if(task.status==='running')task.status='completed'}
+  catch{if(task.status==='running')task.status='failed';res.destroy()}
+  finally{
+   res.off('close',abort);abort();this.activeDownloads--;this.activeResponses.delete(taskId)
+   this.downloadOwners.delete(taskId);this.downloadRoots.delete(taskId);this.emitChange()
+  }
  }
+
 }
 export const fileTransfer=new FileTransferService()
