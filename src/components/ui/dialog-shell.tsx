@@ -31,7 +31,7 @@ export function DialogShell({open,onOpenChange,title,description,children,footer
       </div>
       {!hideClose&&dismissible&&<Primitive.Close aria-label="关闭对话框" className="rounded-lg p-1.5 text-[var(--muted)] hover:bg-[var(--hover)]"><X size={17}/></Primitive.Close>}
      </div>
-     <div className="min-h-0 flex-1 overflow-y-auto break-words px-5 py-4">{children}</div>
+     {children!=null&&children!==false&&children!==''&&<div className="min-h-0 flex-1 overflow-y-auto break-words px-5 py-4">{children}</div>}
      {footer&&<div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-[var(--border)] px-5 py-3">{footer}</div>}
     </motion.section>
    </Primitive.Content>

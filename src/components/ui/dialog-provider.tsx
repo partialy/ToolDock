@@ -1,5 +1,5 @@
 import {createContext,useCallback,useContext,useEffect,useRef,useState,type ReactNode} from 'react'
-import {AlertTriangle,HelpCircle,Info,LoaderCircle} from 'lucide-react'
+import {AlertTriangle,LoaderCircle} from 'lucide-react'
 import {Button} from './button'
 import {DialogShell} from './dialog-shell'
 
@@ -60,13 +60,13 @@ export function DialogProvider({children}:{children:ReactNode}){
      {working&&<LoaderCircle size={15} className="animate-spin"/>}{working?'执行中…':options?.confirmText||'确认'}
     </Button>
    </>}>
-    <div className="flex gap-3">
-     {options?.variant==='danger'?<AlertTriangle className="shrink-0 text-red-400" size={22}/>:warning?<AlertTriangle className="shrink-0 text-amber-400" size={22}/>:options?.variant==='info'?<Info className="shrink-0 text-indigo-400" size={22}/>:<HelpCircle className="shrink-0 text-indigo-400" size={22}/>}
+    {(warning||error)?<div className="flex items-start gap-3">
+     {warning&&<AlertTriangle aria-hidden="true" className={'mt-0.5 shrink-0 '+(options?.variant==='danger'?'text-red-400':'text-amber-400')} size={19}/>}
      <div className="min-w-0 flex-1">
       {warning&&<p className="text-xs leading-6 muted">{options?.variant==='danger'?'此操作可能无法恢复，请确认操作对象和影响范围。':'该操作存在风险，请确认后继续。'}</p>}
-      {error&&<p role="alert" className="mt-2 break-words rounded-lg border border-red-500/30 p-2 text-xs text-red-400">{error}</p>}
+      {error&&<p role="alert" className="break-words rounded-lg border border-red-500/30 p-2 text-xs text-red-400">{error}</p>}
      </div>
-    </div>
+    </div>:null}
    </DialogShell>
  </Context.Provider>
 }
