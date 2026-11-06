@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 import path from 'node:path'
 
 export default defineConfig({
-  main: { plugins: [externalizeDepsPlugin()], build: { rollupOptions: { input: path.resolve('electron/main/index.ts') } } },
+  main: { plugins: [externalizeDepsPlugin({exclude:['remark-parse','unified']})], build: { rollupOptions: { input: {index:path.resolve('electron/main/index.ts'),'text-conversion-worker':path.resolve('electron/main/services/text-conversion/conversion.worker.ts')} } } },
   preload: { plugins: [externalizeDepsPlugin()], build: { rollupOptions: { input: path.resolve('electron/preload/index.ts') } } },
   renderer: {
     root: '.',

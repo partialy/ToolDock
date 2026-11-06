@@ -9,6 +9,17 @@ const api={
   engines:{installCuda:()=>invoke('media:engines:installCuda'),removeCuda:()=>invoke('media:engines:removeCuda')},
   onChange:(cb:()=>void)=>{const fn=()=>cb();ipcRenderer.on('media:changed',fn);return()=>ipcRenderer.off('media:changed',fn)}
  },
+ textConversion:{
+  status:()=>invoke('textConversion:status'),chooseFiles:()=>invoke('textConversion:chooseFiles'),chooseFolder:()=>invoke('textConversion:chooseFolder'),
+  addSources:(paths:string[])=>invoke('textConversion:addSources',paths),start:(ids:string[],force=false)=>invoke('textConversion:start',{ids,force}),
+  cancel:(id:string)=>invoke('textConversion:cancel',id),remove:(ids:string[])=>invoke('textConversion:remove',ids),
+  rename:(id:string,name:string)=>invoke('textConversion:rename',{id,name}),setEncoding:(id:string,encoding:string)=>invoke('textConversion:setEncoding',{id,encoding}),
+  setPreferences:(patch:unknown)=>invoke('textConversion:setPreferences',patch),
+  preview:(id:string,side:'source'|'result',offset:number,length:number)=>invoke('textConversion:preview',{id,side,offset,length}),
+  search:(id:string,side:'source'|'result',query:string,from=0)=>invoke('textConversion:search',{id,side,query,from}),
+  saveOne:(id:string)=>invoke('textConversion:saveOne',id),saveSelected:(ids:string[])=>invoke('textConversion:saveSelected',ids),saveZip:(ids:string[])=>invoke('textConversion:saveZip',ids),
+  onChange:(cb:()=>void)=>{const fn=()=>cb();ipcRenderer.on('textConversion:changed',fn);return()=>ipcRenderer.off('textConversion:changed',fn)}
+ },
  quickLaunch:{
   list:()=>invoke('quickLaunch:list'),tasks:()=>invoke('quickLaunch:tasks'),save:(input:unknown)=>invoke('quickLaunch:save',input),
   setVisible:(id:string,revision:number,visible:boolean)=>invoke('quickLaunch:setVisible',{id,revision,visible}),remove:(id:string,revision:number)=>invoke('quickLaunch:remove',{id,revision}),
