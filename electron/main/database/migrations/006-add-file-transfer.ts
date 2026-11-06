@@ -17,7 +17,7 @@ export function migrateFileTransfer(db:Database){
   if(!old){
    const category=db.prepare("SELECT 1 FROM categories WHERE id='files'").get()?'files':'default'
    const rank=(db.prepare('SELECT COALESCE(MAX(sort_order),-1)+1 n FROM tools WHERE category_id=?').get(category) as {n:number}).n
-   db.prepare('INSERT INTO tools VALUES (?,?,?,?,?,?,?,?,?)').run(def.id,category,def.name,def.icon,'internal',def.target,rank,1,1)
+   db.prepare('INSERT INTO tools (id,category_id,name,icon,type,target,sort_order,visible,is_builtin) VALUES (?,?,?,?,?,?,?,?,?)').run(def.id,category,def.name,def.icon,'internal',def.target,rank,1,1)
   }
   for(const [key,value] of Object.entries({notificationPosition:'bottom-right',fileTransferPrefs:TRANSFER_DEFAULTS}))
    db.prepare('INSERT OR IGNORE INTO settings VALUES (?,?)').run(key,JSON.stringify(value))

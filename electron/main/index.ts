@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
-import { initStore, closeStore, listCategories, saveCategory, removeCategory, reorderCategories, listTools, saveTool, removeTool, reorderTools, getSettings, putSetting, getDataInfo, getDb } from './database/store'
+import { initStore, closeStore, listCategories, saveCategory, removeCategory, reorderCategories, listTools, saveTool, removeTool, reorderTools, getPinnedTools, pinTool, reorderPinnedTools, getSettings, putSetting, getDataInfo, getDb } from './database/store'
 import {listCodecPipelines,getCodecPipeline,createCodecPipeline,updateCodecPipeline,duplicateCodecPipeline,removeCodecPipeline} from './database/codec-pipelines'
 import {pipelineInputSchema} from '../../src/shared/codecModels'
 import {portSchema,killSchema,junctionSchema} from '../../src/shared/commandModels'
@@ -17,7 +17,7 @@ import {fileTransfer} from './services/transfer'
 import {listShareHistory,removeShareHistory,clearShareHistory,getShareHistory} from './database/file-transfer-history'
 import {QuickLaunchService} from './services/quick-launch'
 import {quickLaunchSaveSchema} from '../../src/shared/quickLaunchModels'
-import {appIconPath,createAppTray} from './services/app-tray'
+import {appIconPath,createAppTray,updateAppTray} from './services/app-tray'
 import {MediaService} from './services/media/media-service'
 import {registerMediaIpc} from './services/media/ipc'
 import {TextConversionService} from './services/text-conversion/text-conversion-service'
@@ -35,10 +35,27 @@ let win:BrowserWindow|null=null
 let closing=false
 let shutdownComplete=false
 let tray:ReturnType<typeof createAppTray>|null=null
+let rendererReady=false
+let pendingPinnedTool:string|null=null
 function showMainWindow(){
  if(closing||!win||win.isDestroyed())return
  if(win.isMinimized())win.restore()
  win.show();win.focus()
+}
+function refreshTray(){
+ if(!tray||tray.isDestroyed())return
+ try{updateAppTray(tray,getPinnedTools(true),showMainWindow,openPinnedTool)}catch{recordEvent('tray-menu-update-failed','error')}
+}
+function flushPinnedNavigation(){
+ if(!rendererReady||!win||win.isDestroyed()||!pendingPinnedTool)return
+ const id=pendingPinnedTool;pendingPinnedTool=null
+ if(getPinnedTools(true).some(t=>t.id===id))win.webContents.send('app:navigate',{toolId:id})
+}
+function openPinnedTool(id:string){
+ if(!getPinnedTools(true).some(t=>t.id===id)){showMainWindow();return}
+ pendingPinnedTool=id
+ showMainWindow()
+ flushPinnedNavigation()
 }
 const primaryInstance=app.requestSingleInstanceLock()
 if(!primaryInstance)app.quit()
@@ -56,6 +73,7 @@ const dimensions=z.object({x:z.number().finite(),y:z.number().finite(),width:z.n
 function channels(){
  registerMediaIpc(register,media,()=>win)
  registerTextConversionIpc(register,textConversion,()=>win)
+ register('app:ready',()=>{rendererReady=true;flushPinnedNavigation()})
  const appVersion=z.strictObject({id:z.uuid(),revision:z.number().int().positive()})
  register('quickLaunch:list',()=>quickLaunch.list())
  register('quickLaunch:tasks',()=>quickLaunch.tasks())
@@ -98,13 +116,15 @@ function channels(){
  register('window:close',()=>win!.close())
  register('window:isMaximized',()=>win!.isMaximized())
  register('categories:list',()=>listCategories())
- register('categories:save',(a:unknown)=>saveCategory(categoryInput.parse(a)))
- register('categories:remove',(a:unknown)=>removeCategory(text.parse(a)))
+ register('categories:save',(a:unknown)=>{const result=saveCategory(categoryInput.parse(a));refreshTray();return result})
+ register('categories:remove',(a:unknown)=>{const result=removeCategory(text.parse(a));refreshTray();return result})
  register('categories:reorder',(a:unknown)=>reorderCategories(order.parse(a)))
  register('tools:list',()=>listTools())
- register('tools:save',(a:unknown)=>saveTool(toolInput.parse(a)))
- register('tools:remove',(a:unknown)=>removeTool(text.parse(a)))
+ register('tools:save',(a:unknown)=>{const result=saveTool(toolInput.parse(a));refreshTray();return result})
+ register('tools:remove',(a:unknown)=>{const result=removeTool(text.parse(a));refreshTray();return result})
  register('tools:reorder',(a:unknown)=>{const input=z.object({categoryId:text,ids:order}).parse(a);return reorderTools(input.categoryId,input.ids)})
+ register('tools:pin',(a:unknown)=>{const v=z.strictObject({id:text,pinned:z.boolean()}).parse(a);const result=pinTool(v.id,v.pinned);refreshTray();return result})
+ register('tools:reorderPins',(a:unknown)=>{const ids=z.array(text).max(6).parse(a);const result=reorderPinnedTools(ids);refreshTray();return result})
  register('settings:get',()=>getSettings())
  register('settings:set',(a:unknown)=>{
   const {key,value}=z.object({key:z.enum(['theme','motion','showDefaultTag','allowHttp','sidebarWidth','notificationPosition','fileTransferPrefs','quickLaunchTrigger','quickLaunchStopOnExit']),value:z.unknown()}).parse(a)
@@ -188,7 +208,9 @@ function createWindow(){
   if(!closing&&tray&&!tray.isDestroyed()){e.preventDefault();w.hide();return}
   removeWebview(w)
  })
- w.on('closed',()=>{win=null})
+ w.on('closed',()=>{win=null;rendererReady=false})
+ w.webContents.on('did-start-loading',()=>{rendererReady=false})
+ w.webContents.on('render-process-gone',()=>{rendererReady=false})
  w.webContents.setWindowOpenHandler(()=>({action:'deny'}))
  w.webContents.on('will-navigate',e=>e.preventDefault())
  w.once('ready-to-show',()=>{w.show();if(saved.maximized)w.maximize()})
@@ -198,7 +220,7 @@ function createWindow(){
 }
 app.whenReady().then(async()=>{
  if(!primaryInstance)return
- try{app.setAppUserModelId('cn.partial.tooldock');initStore();initMarker();initLog();await quickLaunch.initialize();await media.initialize();await textConversion.initialize();void fileTransfer.cleanupAbandoned();recordEvent('app-start');channels();createWindow();tray=createAppTray(showMainWindow);const prefs=getSettings().fileTransferPrefs;fileTransfer.setPrefs(prefs);if(win)fileTransfer.setWindow(win);fileTransfer.on('change',()=>{}); }
+ try{app.setAppUserModelId('cn.partial.tooldock');initStore();initMarker();initLog();await quickLaunch.initialize();await media.initialize();await textConversion.initialize();void fileTransfer.cleanupAbandoned();recordEvent('app-start');channels();createWindow();tray=createAppTray(showMainWindow,openPinnedTool,getPinnedTools(true));const prefs=getSettings().fileTransferPrefs;fileTransfer.setPrefs(prefs);if(win)fileTransfer.setWindow(win);fileTransfer.on('change',()=>{}); }
  catch(e){dialog.showErrorBox('ToolDock 初始化失败',e instanceof Error?e.stack||e.message:String(e));app.quit()}
 })
 app.on('window-all-closed',()=>{if(!tray||tray.isDestroyed())app.quit()})

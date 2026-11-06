@@ -78,6 +78,19 @@ export default function App(){
   setPosition(Math.min(position+1,59));setUnsaved(false)
  },[active,position])
  const navigate=useCallback((destination:string)=>{if(destination===active)return;if(unsaved)setPending({kind:'push',destination});else commitNavigation(destination)},[active,unsaved,commitNavigation])
+ const latestWorkspace=useRef(ws);latestWorkspace.current=ws
+ const navigationRef=useRef(navigate);navigationRef.current=navigate
+ useEffect(()=>{
+  if(ws.busy)return
+  const off=window.toolDock.appNav.onNavigate(({toolId})=>{
+   const current=latestWorkspace.current
+   const entry=current.tools.find(t=>t.id===toolId)
+   if(!entry||!entry.visible||!current.categories.some(c=>c.id===entry.categoryId&&c.visible)){msg.warning('固定工具已隐藏或不存在，请从工具管理查看');return}
+   navigationRef.current('tool:'+toolId)
+  })
+  void window.toolDock.appNav.ready().catch(e=>msg.error(e))
+  return off
+ },[ws.busy])
  const stepHistory=(index:number)=>{if(index<0||index>=history.length||index===position)return;if(unsaved)setPending({kind:'move',index});else setPosition(index)}
  const confirmNavigation=()=>{if(!pending)return;if(pending.kind==='push')commitNavigation(pending.destination);else{setPosition(pending.index);setUnsaved(false)}setPending(null)}
  const openEditor=(e:Editor)=>{setEditor(e);void window.toolDock.views.hide()}

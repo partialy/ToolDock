@@ -1,6 +1,14 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 const invoke=(channel:string,payload?:unknown)=>ipcRenderer.invoke(channel,payload)
 const api={
+ appNav:{
+  ready:()=>invoke('app:ready'),
+  onNavigate:(callback:(target:{toolId:string;taskType?:string;taskId?:string})=>void)=>{
+   const fn=(_event:Electron.IpcRendererEvent,target:{toolId:string;taskType?:string;taskId?:string})=>callback(target)
+   ipcRenderer.on('app:navigate',fn)
+   return()=>ipcRenderer.off('app:navigate',fn)
+  }
+ },
  media:{
   status:()=>invoke('media:status'),chooseFiles:(kind:string)=>invoke('media:chooseFiles',kind),chooseFolder:()=>invoke('media:chooseFolder'),addSources:(paths:string[],kind:string)=>invoke('media:addSources',{paths,kind}),
   start:(ids:string[],preferences:unknown)=>invoke('media:start',{ids,preferences}),cancel:(id:string)=>invoke('media:cancel',id),retry:(id:string)=>invoke('media:retry',id),clearFinished:()=>invoke('media:clearFinished'),setAudioTrack:(id:string,index:number)=>invoke('media:setAudioTrack',{id,index}),
@@ -36,7 +44,7 @@ const api={
   close:()=>invoke('window:close'),isMaximized:()=>invoke('window:isMaximized')
  },
  categories:{list:()=>invoke('categories:list'),save:(x:unknown)=>invoke('categories:save',x),remove:(id:string)=>invoke('categories:remove',id),reorder:(ids:string[])=>invoke('categories:reorder',ids)},
- tools:{list:()=>invoke('tools:list'),save:(x:unknown)=>invoke('tools:save',x),remove:(id:string)=>invoke('tools:remove',id),reorder:(categoryId:string,ids:string[])=>invoke('tools:reorder',{categoryId,ids})},
+ tools:{list:()=>invoke('tools:list'),save:(x:unknown)=>invoke('tools:save',x),remove:(id:string)=>invoke('tools:remove',id),reorder:(categoryId:string,ids:string[])=>invoke('tools:reorder',{categoryId,ids}),pin:(id:string,pinned:boolean)=>invoke('tools:pin',{id,pinned}),reorderPins:(ids:string[])=>invoke('tools:reorderPins',ids)},
  settings:{get:()=>invoke('settings:get'),set:(key:string,value:unknown)=>invoke('settings:set',{key,value})},
  views:{
   open:(id:string)=>invoke('views:open',id),bounds:(rect:unknown)=>invoke('views:bounds',rect),

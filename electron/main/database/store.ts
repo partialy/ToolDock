@@ -10,6 +10,7 @@ import { migrateCommandTool } from './migrations/009-add-command-tool'
 import { migrateQuickLaunch } from './migrations/010-add-quick-launch'
 import {migrateFileTransferHistory} from './migrations/011-add-file-transfer-history'
 import {migrateVideoProcessing} from './migrations/012-add-video-processing'
+import {migrateTrayPins} from './migrations/013-add-tray-pins'
 import {TRANSFER_DEFAULTS} from '../../../src/shared/fileTransferModels'
 import { builtinById, builtinByTarget } from '../../../src/shared/builtinToolRegistry'
 import { app } from 'electron'
@@ -48,7 +49,7 @@ export function initStore() {
     if(firstLaunch){
       db.prepare('INSERT INTO categories VALUES (?,?,?,?,?,?)').run('default','默认分类','folder',0,1,1)
       db.prepare('INSERT INTO categories VALUES (?,?,?,?,?,?)').run('developer','开发工具','code-2',1,1,0)
-      db.prepare('INSERT INTO tools VALUES (?,?,?,?,?,?,?,?,?)').run('builtin-key-generator','developer','密钥生成器','key-round','internal','key-generator',0,1,1)
+      db.prepare('INSERT INTO tools (id,category_id,name,icon,type,target,sort_order,visible,is_builtin) VALUES (?,?,?,?,?,?,?,?,?)').run('builtin-key-generator','developer','密钥生成器','key-round','internal','key-generator',0,1,1)
     }
     db.prepare("UPDATE tools SET is_builtin=1 WHERE id='builtin-key-generator'").run()
     for(const [key,value] of Object.entries(defaultPrefs)) db.prepare('INSERT OR IGNORE INTO settings VALUES (?,?)').run(key,JSON.stringify(value))
@@ -65,11 +66,12 @@ export function initStore() {
   migrateQuickLaunch(db)
   migrateFileTransferHistory(db)
   migrateVideoProcessing(db)
+  migrateTrayPins(db)
 
 }
 export function closeStore() { if(db?.open) { db.pragma('wal_checkpoint(TRUNCATE)'); db.close() } }
 const asCategory=(r:Record<string,unknown>):Category=>({id:String(r.id),name:String(r.name),icon:String(r.icon),sortOrder:Number(r.sort_order),visible:Boolean(r.visible),isSystem:Boolean(r.is_system)})
-const asTool=(r:Record<string,unknown>):Tool=>({id:String(r.id),categoryId:String(r.category_id),name:String(r.name),icon:String(r.icon),type:r.type as Tool['type'],target:String(r.target),sortOrder:Number(r.sort_order),visible:Boolean(r.visible),isBuiltin:Boolean(r.is_builtin)})
+const asTool=(r:Record<string,unknown>):Tool=>({id:String(r.id),categoryId:String(r.category_id),name:String(r.name),icon:String(r.icon),type:r.type as Tool['type'],target:String(r.target),sortOrder:Number(r.sort_order),visible:Boolean(r.visible),isBuiltin:Boolean(r.is_builtin),trayPinOrder:r.tray_pin_order==null?null:Number(r.tray_pin_order)})
 export const listCategories=():Category[]=>(db.prepare('SELECT * FROM categories ORDER BY sort_order,id').all() as Record<string,unknown>[]).map(asCategory)
 export const listTools=():Tool[]=>(db.prepare('SELECT * FROM tools ORDER BY category_id,sort_order,id').all() as Record<string,unknown>[]).map(asTool)
 export function saveCategory(input:Partial<Category>&{name:string}) {
@@ -105,19 +107,51 @@ export function saveTool(input:Partial<Tool> & {name:string; categoryId:string; 
  if(prev?.is_builtin && (input.type!==prev.type||input.target!==prev.target||!builtinById(id)))throw Error('不可改变预置工具的类型和目标')
  if(input.type==='internal'&&(!prev||!prev.is_builtin||builtinById(id)?.target!==input.target))throw Error('不能自行创建或篡改内置工具')
  const item={id,categoryId:input.categoryId,name:input.name.trim(),icon:input.icon||'wrench',type:input.type,target:input.target,sortOrder:prev?Number(prev.sort_order):(db.prepare('SELECT COALESCE(MAX(sort_order),-1)+1 AS n FROM tools WHERE category_id=?').get(input.categoryId) as {n:number}).n,visible:Number(input.visible??(prev?Boolean(prev.visible):true)),isBuiltin:Number(Boolean(prev?.is_builtin))}
- db.prepare('INSERT INTO tools VALUES (@id,@categoryId,@name,@icon,@type,@target,@sortOrder,@visible,@isBuiltin) ON CONFLICT(id) DO UPDATE SET category_id=excluded.category_id,name=excluded.name,icon=excluded.icon,type=excluded.type,target=excluded.target,sort_order=excluded.sort_order,visible=excluded.visible').run(item)
+ db.prepare('INSERT INTO tools (id,category_id,name,icon,type,target,sort_order,visible,is_builtin) VALUES (@id,@categoryId,@name,@icon,@type,@target,@sortOrder,@visible,@isBuiltin) ON CONFLICT(id) DO UPDATE SET category_id=excluded.category_id,name=excluded.name,icon=excluded.icon,type=excluded.type,target=excluded.target,sort_order=excluded.sort_order,visible=excluded.visible').run(item)
  return asTool(db.prepare('SELECT * FROM tools WHERE id=?').get(id) as Record<string,unknown>)
 }
 export function removeTool(id:string) {
  const t=db.prepare('SELECT * FROM tools WHERE id=?').get(id) as Record<string,unknown>|undefined
  if(!t)throw Error('工具不存在')
  if(t.is_builtin)throw Error('内置工具仅能隐藏，不能删除')
- db.prepare('DELETE FROM tools WHERE id=?').run(id)
+ db.transaction(()=>{
+  const previous=getPinnedTools().map(t=>t.id).filter(pin=>pin!==id)
+  db.prepare('DELETE FROM tools WHERE id=?').run(id)
+  writePinOrder(previous)
+ })()
 }
 export function reorderTools(categoryId:string,ids:string[]) {
  const current=listTools().filter(t=>t.categoryId===categoryId).map(t=>t.id)
  if(ids.length!==current.length||new Set(ids).size!==current.length||!ids.every(id=>current.includes(id)))throw Error('工具排序列表不完整')
  db.transaction(()=>ids.forEach((id,i)=>db.prepare('UPDATE tools SET sort_order=? WHERE id=?').run(i,id)))()
+}
+/** 固定入口顺序与分类排序相互独立；隐藏项仍占用固定名额。 */
+export function getPinnedTools(visibleOnly=false):Tool[]{
+ const cats=visibleOnly?new Set(listCategories().filter(c=>c.visible).map(c=>c.id)):null
+ return listTools().filter(t=>t.trayPinOrder!=null&&(!visibleOnly||(t.visible&&cats!.has(t.categoryId)))).sort((a,b)=>(a.trayPinOrder??0)-(b.trayPinOrder??0))
+}
+/** 使用先清空再更新避免唯一索引在交换位置时发生暂态冲突；仅在事务内调用。 */
+function writePinOrder(ids:string[]){
+ db.prepare('UPDATE tools SET tray_pin_order=NULL WHERE tray_pin_order IS NOT NULL').run()
+ ids.forEach((id,index)=>db.prepare('UPDATE tools SET tray_pin_order=? WHERE id=?').run(index,id))
+}
+export function pinTool(id:string,pinned:boolean):Tool{
+ return db.transaction(()=>{
+  const item=db.prepare('SELECT * FROM tools WHERE id=?').get(id)
+  if(!item)throw Error('工具不存在')
+  const current=getPinnedTools().map(t=>t.id),exists=current.includes(id)
+  if(pinned&&!exists&&current.length>=6)throw Error('最多固定 6 个工具')
+  if(exists!==pinned)writePinOrder(pinned?[...current,id]:current.filter(x=>x!==id))
+  return listTools().find(t=>t.id===id)!
+ })()
+}
+export function reorderPinnedTools(ids:string[]):Tool[]{
+ return db.transaction(()=>{
+  const current=getPinnedTools().map(t=>t.id)
+  if(ids.length>6||ids.length!==current.length||new Set(ids).size!==current.length||!ids.every(id=>current.includes(id)))throw Error('固定工具排序列表不完整')
+  writePinOrder(ids)
+  return getPinnedTools()
+ })()
 }
 export function getSettings():Settings {
  const rows=db.prepare('SELECT * FROM settings').all() as {key:string;value_json:string}[]

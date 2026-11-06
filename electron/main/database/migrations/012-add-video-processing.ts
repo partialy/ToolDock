@@ -14,7 +14,7 @@ export function migrateVideoProcessing(db:Database){
     db.prepare('INSERT INTO categories VALUES (?,?,?,?,?,?)').run('media','音视频工具','film',order!,1,0)
    }
    const order=db.prepare("SELECT COALESCE(MAX(sort_order),-1)+1 AS n FROM tools WHERE category_id='media'").get()!.n
-   db.prepare('INSERT INTO tools VALUES (?,?,?,?,?,?,?,?,?)').run(def.id,'media',def.name,def.icon,'internal',def.target,order!,1,1)
+   db.prepare('INSERT INTO tools (id,category_id,name,icon,type,target,sort_order,visible,is_builtin) VALUES (?,?,?,?,?,?,?,?,?)').run(def.id,'media',def.name,def.icon,'internal',def.target,order!,1,1)
   }
   db.exec(`CREATE TABLE IF NOT EXISTS media_tasks (
    id TEXT PRIMARY KEY, kind TEXT NOT NULL, input_path TEXT NOT NULL, output_path TEXT,
