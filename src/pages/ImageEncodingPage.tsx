@@ -1,3 +1,4 @@
+import {msg} from '@/components/ui/message'
 import {useEffect,useRef,useState} from 'react'
 import {ArrowLeftRight,Binary,Copy,FileCode2,RefreshCw,X} from 'lucide-react'
 import {Button} from '@/components/ui/button'
@@ -65,8 +66,8 @@ export function ImageEncodingPage(){
  }
  const copy=async()=>{
   if(!usable||result?.kind!=='encode'||!result.encoded)return
-  try{await navigator.clipboard.writeText(result.encoded);setExported(true);setError('')}
-  catch(e){setError('复制失败：'+String(e))}
+  try{await navigator.clipboard.writeText(result.encoded);setExported(true);msg.success('已复制')}
+  catch(e){msg.error(e)}
  }
  const save=async()=>{
   if(!usable||!result)return
@@ -84,8 +85,8 @@ export function ImageEncodingPage(){
    }else if(result.bytes){
     for(let pos=0;pos<result.bytes.length;pos+=CHUNK)await window.toolDock.export.chunk(id,result.bytes.slice(pos,pos+CHUNK))
    }
-   await window.toolDock.export.finish(id);setExported(true);setError('')
-  }catch(e){if(id)await window.toolDock.export.cancel(id).catch(()=>{});setError('导出失败：'+String(e))}
+   await window.toolDock.export.finish(id);setExported(true);msg.success('文件已导出')
+  }catch(e){if(id)await window.toolDock.export.cancel(id).catch(()=>{});msg.error(e)}
  }
  const reset=()=>{setFile(null);setText('');setResult(null);setResultVersion(-1);change()}
  const dropOver=useWindowFileDrop(files=>{const found=files.find(f=>/\.(png|jpe?g|webp|gif|bmp|ico)$/i.test(f.name)&&f.size>0&&f.size<=IMAGE_ENCODING_MAX_BYTES);if(found){setUploadedFile(found);if(files.length>1)setError('只取第一张有效图片')}else setError('未找到符合格式和大小要求的图片文件')},direction==='encode')
@@ -108,7 +109,6 @@ export function ImageEncodingPage(){
    <ImageEncodingResult result={result} stale={stale||Boolean(result&&result.kind!==direction)} previewUrl={previewError?'':previewUrl} busy={busy} onCopy={()=>void copy()} onDownload={()=>void save()} onPreviewError={()=>setPreviewError(true)}/>
   </div>
   {error&&<p role="alert" className="whitespace-pre-wrap rounded-xl border border-red-500/30 bg-red-500/5 p-3 text-xs text-red-400">{error}</p>}
-  {exported&&<p role="status" className="flex items-center gap-2 text-xs text-emerald-500"><Copy size={14}/> 内容已成功复制或保存</p>}
   <p className="text-xs muted">保持源图片的原始字节，GIF 动画、元数据不会因编码转换被重新压缩。大文本只显示前 2000 字符；操作中不使用网络。</p>
   <DropOverlay visible={dropOver} />
  </div>

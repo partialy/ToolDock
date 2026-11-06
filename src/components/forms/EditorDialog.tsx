@@ -10,16 +10,16 @@ import type {Workspace} from '@/store/useWorkspace'
 
 type Edit = {kind:'category';item?:Category}|{kind:'tool';item?:Tool}
 export function EditorDialog({edit,onClose,ws}:{edit:Edit|null;onClose:()=>void;ws:Workspace}){
- const [name,setName]=useState(''),[icon,setIcon]=useState('folder'),[categoryId,setCategoryId]=useState('default'),[target,setTarget]=useState(''),[visible,setVisible]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState('')
- useEffect(()=>{if(!edit)return;setName(edit.item?.name||'');setIcon(edit.item?.icon||(edit.kind==='category'?'folder':'globe'));setCategoryId(edit.kind==='tool'?edit.item?.categoryId||'default':'default');setTarget(edit.kind==='tool'?edit.item?.target||'':'');setVisible(edit.item?.visible??true);setError('')},[edit])
+ const [name,setName]=useState(''),[icon,setIcon]=useState('folder'),[categoryId,setCategoryId]=useState('default'),[target,setTarget]=useState(''),[visible,setVisible]=useState(true),[busy,setBusy]=useState(false)
+ useEffect(()=>{if(!edit)return;setName(edit.item?.name||'');setIcon(edit.item?.icon||(edit.kind==='category'?'folder':'globe'));setCategoryId(edit.kind==='tool'?edit.item?.categoryId||'default':'default');setTarget(edit.kind==='tool'?edit.item?.target||'':'');setVisible(edit.item?.visible??true)},[edit])
  const save=async()=>{
   if(!edit)return
-  setBusy(true);setError('')
+  setBusy(true)
   try{
    if(edit.kind==='category')await ws.execute(()=>window.toolDock.categories.save({id:edit.item?.id,name,icon,visible}))
    else await ws.execute(()=>window.toolDock.tools.save({id:edit.item?.id,name,icon,categoryId,type:edit.item?.type||'link',target:edit.item?.type==='internal'?edit.item.target:target.trim(),visible}))
    onClose()
-  }catch(e){setError(e instanceof Error?e.message:String(e))}
+  }catch{/* Workspace 统一上报保存错误，表单保留输入供重试。 */}
   finally{setBusy(false)}
  }
  return <Modal open={!!edit} onOpenChange={v=>{if(!v)onClose()}} title={edit?.item?'编辑'+(edit.kind==='category'?'分类':'工具'):'新增'+(edit?.kind==='category'?'分类':'工具')}
@@ -37,7 +37,6 @@ export function EditorDialog({edit,onClose,ws}:{edit:Edit|null;onClose:()=>void;
     {edit.item?.type!=='internal'&&<label className="block space-y-1.5"><span className="text-xs muted">链接地址</span><Input value={target} onChange={e=>setTarget(e.target.value)} placeholder="https://example.com"/></label>}
    </>}
    <div className="flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--panel-alt)] px-3 py-2.5 text-xs"><span>在侧栏显示</span><SwitchField ariaLabel="在侧栏显示" checked={visible} onCheckedChange={setVisible}/></div>
-   {error&&<div role="alert" className="text-sm text-red-400">{error}</div>}
   </div>
  </Modal>
 }

@@ -1,3 +1,4 @@
+import {msg} from '@/components/ui/message'
 import {useEffect,useMemo,useRef,useState} from 'react'
 import {useVirtualizer} from '@tanstack/react-virtual'
 import {ChevronDown,ChevronRight,Copy,Search} from 'lucide-react'
@@ -61,7 +62,7 @@ export function JsonTreeView({root,revision,getChildren,search,getNode}:Props){
   setExpanded(new Set(ids))
   setQuery('')
  }
- const copy=async(value:string)=>{try{await navigator.clipboard.writeText(value)}catch{setError('复制失败')}}
+ const copy=async(value:string)=>{try{await navigator.clipboard.writeText(value);msg.success('已复制')}catch{msg.error('复制失败')}}
  return <div className="space-y-2">
   <div className="relative"><Search className="pointer-events-none absolute left-3 top-3 muted" size={15}/><Input className="pl-9" value={query} onChange={e=>setQuery(e.target.value)} placeholder="搜索 Key、Value 或 JSONPath..."/></div>
   {!!query&&<p className="text-xs muted">搜索到 {matchCount} 项，展示前 {found.length} 项；点击可定位树节点</p>}

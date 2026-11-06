@@ -1,3 +1,4 @@
+import {msg} from '@/components/ui/message'
 import {useCallback,useEffect,useRef,useState} from 'react'
 import {Braces,Copy,Download,FileUp,RefreshCw,ArrowRightLeft,X} from 'lucide-react'
 import {Button} from '@/components/ui/button'
@@ -57,7 +58,7 @@ export function JsonToolPage(){
   }catch(e){setError(e instanceof Error?e.message:String(e))}
   finally{setBusy(false)}
  }
- const copy=async(text:string)=>{try{await navigator.clipboard.writeText(text);setError('')}catch{setError('复制失败')}}
+ const copy=async(text:string)=>{try{await navigator.clipboard.writeText(text);msg.success('已复制')}catch{msg.error('复制失败')}}
  const importFile=async(file:File)=>{
   if(file.size>MAX_BYTES){setError('文件超过 20 MiB，已拒绝导入');return}
   if(!/\.(json|txt)$/i.test(file.name)){setError('只支持 .json 或 .txt 文件');return}

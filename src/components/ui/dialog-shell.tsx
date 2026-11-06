@@ -17,8 +17,8 @@ export function DialogShell({open,onOpenChange,title,description,children,footer
    <Primitive.Overlay asChild forceMount><motion.div initial={off?false:{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} transition={{duration:off?0:reduced?.08:.16}} className="fixed inset-0 z-[290] bg-black/65 backdrop-blur-[3px]"/></Primitive.Overlay>
    <Primitive.Content forceMount
      onEscapeKeyDown={e=>{if(!dismissible)e.preventDefault()}}
-     onPointerDownOutside={e=>{if(!dismissible)e.preventDefault()}}
-     onInteractOutside={e=>{if(!dismissible)e.preventDefault()}}
+     onPointerDownOutside={e=>{if(!dismissible||(e.target instanceof Element&&e.target.closest('[data-msg-viewport]')))e.preventDefault()}}
+     onInteractOutside={e=>{if(!dismissible||(e.target instanceof Element&&e.target.closest('[data-msg-viewport]')))e.preventDefault()}}
      onOpenAutoFocus={onOpenAutoFocus}
      className={'fixed left-1/2 top-1/2 z-[291] w-[calc(100vw-24px)] -translate-x-1/2 -translate-y-1/2 outline-none '+size}>
     <motion.section initial={enter} animate={{opacity:1,scale:1,y:0}} exit={leave}

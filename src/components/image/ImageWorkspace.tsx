@@ -1,3 +1,4 @@
+import {msg} from '@/components/ui/message'
 import {useEffect,useRef,useState} from 'react'
 import {CheckCircle,FileImage,Images,Package,Plus,Scissors,Trash2,Download,Eye,X,AlertTriangle} from 'lucide-react'
 import {Button} from '@/components/ui/button'
@@ -152,7 +153,7 @@ export function ImageWorkspace({kind}:{kind:'image'|'logo'}){
   setProcessedVersion(currentVersion)
   setStatus(Object.keys(errors).length?'partial':'complete')
  }
- const saveOne=async(r:Result)=>{try{const ok=await saveBlob(r.blob,r.name,r.format);if(ok&&outputs.length===1)setExported(true)}catch(e){setError(String(e))}}
+ const saveOne=async(r:Result)=>{try{const ok=await saveBlob(r.blob,r.name,r.format);if(ok){if(outputs.length===1)setExported(true);msg.success('图片已导出')}}catch(e){msg.error(e)}}
  const saveAll=async()=>{
   if(!outputs.length||processedVersion!==version){setError('请使用当前配置重新生成');return}
   const token=await window.toolDock.export.start(logo?'icons.zip':'processed-images.zip','zip')
@@ -162,8 +163,8 @@ export function ImageWorkspace({kind}:{kind:'image'|'logo'}){
    for(const item of items){const stem=safeStem(item.stem);let folder=stem,index=2;while(usedFolders.includes(folder))folder=stem+'_'+index++;usedFolders.push(folder);folders.set(item.id,folder)}
    const entries=outputs.map(r=>{const folder=folders.get(r.sourceId)||'image';const proposed=(logo?folder+'/':'')+r.name;const name=unique(names,proposed);names.push(name);return {name,blob:r.blob}})
    await zipToSink(entries,async chunk=>{for(let p=0;p<chunk.length;p+=524288)await window.toolDock.export.chunk(token,chunk.slice(p,p+524288))})
-   await window.toolDock.export.finish(token);setExported(true)
-  }catch(e){await window.toolDock.export.cancel(token);setError('打包导出失败：'+String(e))}
+   await window.toolDock.export.finish(token);setExported(true);msg.success('图片已打包导出')
+  }catch(e){await window.toolDock.export.cancel(token);msg.error(e)}
  }
  const toggleFormat=(f:string)=>{setSelectedFormats(list=>list.includes(f)?list.filter(x=>x!==f):[...list,f]);change()}
  const toggleSize=(n:number)=>{setSelectedSizes(list=>list.includes(n)?list.filter(x=>x!==n):[...list,n].sort((a,b)=>a-b));change()}

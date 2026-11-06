@@ -1,3 +1,4 @@
+import {msg} from '@/components/ui/message'
 import {useEffect,useRef,useState,type ReactNode} from 'react'
 import {FolderOpen,ImagePlus,FileCode2} from 'lucide-react'
 import {DialogShell} from '@/components/ui/dialog-shell'
@@ -24,7 +25,7 @@ export function QuickLaunchEditorDialog({app,groups,environment,locked,onClose,o
  useEffect(()=>{window.dispatchEvent(new CustomEvent('tooldock:unsaved',{detail:dirty}));return()=>{window.dispatchEvent(new CustomEvent('tooldock:unsaved',{detail:false}))}},[dirty])
  const set=<K extends keyof QuickLaunchInput>(key:K,value:QuickLaunchInput[K])=>setData(old=>({...old,[key]:value,...(key==='name'&&!confirmationTouched.current?{confirmMessage:`确认运行${String(value)}吗？`}:{})}))
  const close=async()=>{if(saving||resourceBusy)return;if(!dirty||await dialog.confirm({title:'放弃未保存的修改？',description:'当前 App 的修改尚未保存。',confirmText:'放弃修改',cancelText:'继续编辑',variant:'warning'}))onClose()}
- const choose=async(kind:'script'|'icon'|'directory')=>{if(resourceBusy)return;setResourceBusy(true);setError('');try{if(kind==='script'){const value=await window.toolDock.quickLaunch.chooseScript(data.shell);if(value)setScript(value)}else if(kind==='icon'){const value=await window.toolDock.quickLaunch.chooseIcon();if(value){setIcon(value);set('iconKind','managed')}}else{const value=await window.toolDock.quickLaunch.chooseWorkingDirectory();if(value)set('workingDirectory',value)}}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setResourceBusy(false)}}
+ const choose=async(kind:'script'|'icon'|'directory')=>{if(resourceBusy)return;setResourceBusy(true);setError('');try{if(kind==='script'){const value=await window.toolDock.quickLaunch.chooseScript(data.shell);if(value)setScript(value)}else if(kind==='icon'){const value=await window.toolDock.quickLaunch.chooseIcon();if(value){setIcon(value);set('iconKind','managed')}}else{const value=await window.toolDock.quickLaunch.chooseWorkingDirectory();if(value)set('workingDirectory',value)}}catch(e){msg.error(e)}finally{setResourceBusy(false)}}
  const submit=async()=>{
   if(saveLock.current||locked||resourceBusy)return
   const parsed=quickLaunchInputSchema.safeParse({...data,...(script?{scriptToken:script.token}:{}),...(icon?{iconToken:icon.token}:{})})
@@ -32,7 +33,7 @@ export function QuickLaunchEditorDialog({app,groups,environment,locked,onClose,o
   if(parsed.data.sourceKind==='file'&&!script&&!app?.managedScript){setError('请选择需要托管的脚本文件');return}
   if(parsed.data.iconKind==='managed'&&!icon&&app?.iconKind!=='managed'){setError('请选择图标图片');return}
   saveLock.current=true;setSaving(true);setError('')
-  try{if(await onSave({...(app?{id:app.id,expectedRevision:app.revision}:{}),data:parsed.data}))onClose();else setError('保存失败。请检查 App 是否已被修改、运行状态及资源是否仍可用后重试。')}finally{saveLock.current=false;setSaving(false)}
+  try{if(await onSave({...(app?{id:app.id,expectedRevision:app.revision}:{}),data:parsed.data}))onClose();}finally{saveLock.current=false;setSaving(false)}
  }
  return <DialogShell open onOpenChange={v=>{if(!v)void close()}} title={app?'编辑 App':'新增 App'} description="保存的命令和脚本将在本机执行。请仅使用可信内容，避免在命令中存放敏感凭据。" width="workspace" dismissible={!saving&&!resourceBusy} footer={<><Button disabled={saving} onClick={()=>void close()}>取消</Button><Button variant="primary" disabled={saving||resourceBusy||locked} onClick={()=>void submit()}>{saving?'保存中…':'保存 App'}</Button></>}>
   {locked&&<p role="alert" className="mb-4 text-sm text-amber-500">该 App 正在执行或身份未知，暂时不能修改。请先停止或在详情中重新检测。</p>}

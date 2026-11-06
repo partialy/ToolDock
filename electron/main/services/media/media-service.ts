@@ -3,7 +3,7 @@ import path from 'node:path'
 import {randomUUID} from 'node:crypto'
 import type {BrowserWindow} from 'electron'
 import {getDb,getDataRoot} from '../../database/store'
-import {defaultMediaPreferences,mediaPreferencesSchema,type MediaPreferences,type MediaKind,type MediaTask,type MediaSnapshot} from '../../../../src/shared/mediaModels'
+import {defaultMediaPreferences,mediaPreferencesSchema,mediaPreferencesPatchSchema,type MediaPreferences,type MediaKind,type MediaTask,type MediaSnapshot} from '../../../../src/shared/mediaModels'
 import {scanSources,probeMedia,createWorkspace} from './media-files'
 import {ffmpegBinaries,engineStatus,validateFfmpeg} from './engines'
 import {loadMediaTasks,saveMediaTask} from './task-persistence'
@@ -28,7 +28,7 @@ export class MediaService {
  }
  runtimeDirectory(){return path.join(getDataRoot(),'media-engines')}
  getPreferences(){return{...this.preferences,modelDirectory:this.preferences.modelDirectory||path.join(getDataRoot(),'models','whisper')}}
- private savePreferences(p:MediaPreferences){this.preferences=p;getDb().prepare('INSERT INTO settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json').run('mediaPrefs',JSON.stringify(p));this.changed()}
+ private savePreferences(p:MediaPreferences){getDb().prepare('INSERT INTO settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json').run('mediaPrefs',JSON.stringify(p));this.preferences=p;this.changed()}
  async initialize(){
   const row=getDb().prepare("SELECT value_json FROM settings WHERE key='mediaPrefs'").get()
   if(row)try{this.preferences=mediaPreferencesSchema.parse(JSON.parse(String(row.value_json)))}catch{/* 无效设置使用默认值。 */}
@@ -47,7 +47,7 @@ export class MediaService {
  private assertAvailable(){if(this.closing||this.exclusive||this.restartRequired)throw Error(this.restartRequired?'数据目录已变更，请重启 ToolDock 后继续':'媒体服务正在退出或执行数据目录操作')}
  async status():Promise<MediaSnapshot>{return{tasks:this.tasks.map(t=>({...t,probe:{...t.probe,audioTracks:t.probe.audioTracks.map(a=>({...a}))}})),preferences:this.getPreferences(),models:await this.models.list(),downloads:this.models.downloads(),engines:await engineStatus(this.runtimeDirectory()),busy:this.isBusy()||this.models.isBusy()}}
  getTask(id:string){const t=this.tasks.find(t=>t.id===id);if(!t)throw Error('任务不存在');return t}
- async setPreferences(patch:Partial<MediaPreferences>){this.assertAvailable();if(patch.modelDirectory!==undefined||(patch.ffmpegOverride!==undefined&&patch.ffmpegOverride!==''))throw Error('请使用专用目录或程序选择器');if(patch.ffmpegOverride==='')this.assertIdle();const p=mediaPreferencesSchema.parse({...this.preferences,...patch});if(p.outputDirectory&&!path.isAbsolute(p.outputDirectory))throw Error('输出目录必须为绝对路径');this.savePreferences(p)}
+ async setPreferences(input:Partial<MediaPreferences>){this.assertAvailable();const patch=mediaPreferencesPatchSchema.parse(input);if(patch.modelDirectory!==undefined||(patch.ffmpegOverride!==undefined&&patch.ffmpegOverride!==''))throw Error('请使用专用目录或程序选择器');if(patch.ffmpegOverride==='')this.assertIdle();const p=mediaPreferencesSchema.parse({...this.preferences,...patch});if(p.outputDirectory&&!path.isAbsolute(p.outputDirectory))throw Error('输出目录必须为绝对路径');this.savePreferences(p)}
  async setFfmpegOverride(file:string){return this.dataMutation(async()=>{this.savePreferences({...this.preferences,ffmpegOverride:await validateFfmpeg(file)})})}
  async addSources(inputs:string[],kind:MediaKind){
   this.assertAvailable();if(this.adding)throw Error('文件正在导入，请稍候');this.adding=true;const controller=new AbortController();this.importController=controller;let finishImport!:()=>void;this.importFinished=new Promise(resolve=>{finishImport=resolve})

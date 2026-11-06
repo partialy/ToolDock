@@ -1,6 +1,6 @@
 {
   "name": "tooldock",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Desktop toolbox and utility workspace",
   "productName": "ToolDock",
   "main": "./out/main/index.js",

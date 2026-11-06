@@ -1,3 +1,4 @@
+import {msg} from '@/components/ui/message'
 import {useEffect,useRef,useState} from 'react'
 import {AlertTriangle,CheckCircle2,Download,ImagePlus,LoaderCircle,QrCode,ShieldAlert,Trash2} from 'lucide-react'
 import {Button} from '@/components/ui/button'
@@ -91,8 +92,8 @@ export function QrCodeToolPage(){
     await window.toolDock.export.chunk(token,bytes)
    }
    await window.toolDock.export.finish(token)
-   token=null;setExported(true);setError('')
-  }catch(e){setError('保存失败：'+String(e))}
+   token=null;setExported(true);msg.success('二维码已导出')
+  }catch(e){msg.error(e)}
   finally{if(token)await window.toolDock.export.cancel(token).catch(()=>{})}
  }
  const bytes=new TextEncoder().encode(cfg.kind==='url'?cfg.url.trim():cfg.text).length
@@ -156,7 +157,6 @@ export function QrCodeToolPage(){
      <p>内容：{bytes} 字节 · 纠错等级：{effectiveEcc(cfg)} · {cfg.withLogo?'内嵌 Logo':'无 Logo'}</p>
      <p className="mt-1">纯色二维码，支持自定义模块和定位角；无需联网。</p>
     </div>
-    {exported&&<p role="status" className="text-xs text-emerald-400">二维码已保存到所选文件位置。</p>}
    </section>
   </div>
   <DropOverlay visible={dropOver} />

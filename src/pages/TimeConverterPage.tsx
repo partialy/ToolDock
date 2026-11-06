@@ -1,3 +1,4 @@
+import {msg} from '@/components/ui/message'
 import {useEffect,useState} from 'react'
 import {Clock3,Copy,Pause,Play} from 'lucide-react'
 import {Button} from '@/components/ui/button'
@@ -12,7 +13,7 @@ export function TimeConverterPage(){
  const [stampResult,setStampResult]=useState<Date|null>(null),[localInput,setLocalInput]=useState(initial)
  const [dateResult,setDateResult]=useState<{second:string;millisecond:string}|null>(null),[error,setError]=useState('')
  useEffect(()=>{if(paused)return;const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer)},[paused])
- const copy=(text:string)=>void navigator.clipboard.writeText(text).catch(()=>setError('复制失败'))
+ const copy=(text:string)=>void navigator.clipboard.writeText(text).then(()=>{msg.success('已复制')},()=>{msg.error('复制失败')})
  const fromStamp=()=>{try{setStampResult(timestampToDate(timestamp,unit));setError('')}catch(e){setError(String(e));setStampResult(null)}}
  const fromDate=()=>{try{setDateResult(dateToTimestamps(parseLocalDateTime(localInput)));setError('')}catch(e){setError(String(e));setDateResult(null)}}
  const output=(label:string,text:string)=> <div className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--panel-alt)] p-3"><div className="min-w-0 flex-1"><div className="mb-1 text-xs muted">{label}</div><div className="break-all font-mono text-xs">{text}</div></div><Button size="icon" variant="ghost" title={'复制'+label} onClick={()=>copy(text)}><Copy size={15}/></Button></div>

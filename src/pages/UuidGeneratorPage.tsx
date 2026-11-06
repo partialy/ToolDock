@@ -1,3 +1,4 @@
+import {msg} from '@/components/ui/message'
 import {useState} from 'react'
 import {Copy,Download,Fingerprint,RefreshCw} from 'lucide-react'
 import {Button} from '@/components/ui/button'
@@ -8,7 +9,7 @@ export function UuidGeneratorPage(){
  const [count,setCount]=useState(5),[upper,setUpper]=useState(false),[compact,setCompact]=useState(false)
  const [results,setResults]=useState<string[]>([]),[error,setError]=useState('')
  const generate=()=>{try{setResults(generateUuids(count,upper,compact));setError('')}catch(e){setError(String(e))}}
- const copy=(v:string)=>void navigator.clipboard.writeText(v).catch(()=>setError('复制失败'))
+ const copy=(v:string)=>void navigator.clipboard.writeText(v).then(()=>{msg.success('已复制')},()=>{msg.error('复制失败')})
  const download=()=>{if(!results.length)return;const url=URL.createObjectURL(new Blob([results.join('\n')],{type:'text/plain;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='uuid.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
  return <div className="mx-auto max-w-5xl space-y-5 p-6">
   <div className="flex items-center gap-3"><ToolPageIcon size={25} className="text-indigo-400"/><div><h1 className="text-xl font-semibold">UUID / GUID 生成</h1><p className="text-xs muted">密码学安全随机 UUID v4 · 本地生成</p></div></div>

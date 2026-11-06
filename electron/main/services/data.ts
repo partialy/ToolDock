@@ -7,6 +7,7 @@ import Database from '../database/sqlite'
 import { closeStore, getDataRoot, getDb, initStore, setBoot, defaultDataRoot } from '../database/store'
 import { prepareWebviewsForDataMove } from '../views/webviews'
 import {addDataFolder,validateDataArchive} from './data-archive'
+import {prepareDataMigration} from './data-migration'
 
 const marker='.tooldock-data'
 function canonical(p:string){return path.resolve(p).toLowerCase()}
@@ -18,36 +19,34 @@ export async function chooseDataFolder(win:BrowserWindow) {
  return r.canceled?null:r.filePaths[0]
 }
 export async function migrateData(win:BrowserWindow,target:string) {
- const old=getDataRoot(),dest=path.resolve(target)
- if(related(dest,old)||related(dest,app.getPath('userData'))||related(dest,app.getAppPath()))throw Error('不能使用当前数据目录或其上级/子级目录')
- if(fs.existsSync(dest)&&fs.readdirSync(dest).length)throw Error('目标目录必须为空，请选择一个空文件夹')
- fs.mkdirSync(dest,{recursive:true})
- fs.accessSync(dest,fs.constants.W_OK)
- const historyId=randomUUID()
- // 迁移前先将正在运行的网页会话写盘并移除原生视图，避免复制活动中的 Cookie 数据。
- await prepareWebviewsForDataMove(win)
- getDb().prepare('INSERT INTO migration_history (id,old_path,new_path,created_at) VALUES (?,?,?,?)').run(historyId,old,dest,new Date().toISOString())
- closeStore()
+ const old=getDataRoot(),migration=prepareDataMigration(old,target,[app.getPath('userData'),app.getAppPath()]),dest=migration.target
+ const historyId=randomUUID();let recorded=false,closed=false,bootAttempted=false
  try {
-  fs.cpSync(old,dest,{recursive:true,force:false,errorOnExist:true})
-  verifyDirectory(dest)
-  const newDb=path.join(dest,'tooldock.sqlite')
+  // 网页会话落盘后关闭 SQLite，再复制完整的静止数据快照。
+  await prepareWebviewsForDataMove(win)
+  getDb().prepare('INSERT INTO migration_history (id,old_path,new_path,created_at) VALUES (?,?,?,?)').run(historyId,old,dest,new Date().toISOString());recorded=true
+  closed=true;closeStore()
+  migration.copy()
+  verifyDirectory(migration.payload)
+  const newDb=path.join(migration.payload,'tooldock.sqlite')
   if(!fs.existsSync(newDb))throw Error('数据库未复制')
   const check=new Database(newDb,{readonly:true})
   try{if(check.pragma('integrity_check',{simple:true})!=='ok')throw Error('迁移后的数据库完整性检查失败')}
   finally{check.close()}
-  // 只在所有文件复制和数据库校验成功之后切换启动定位。
-  setBoot(dest)
+  // 验证后排他写入目标；目标目录及并发写入的用户文件始终保留。
+  migration.publish()
+  bootAttempted=true;setBoot(dest)
   initStore()
   return {restartRequired:true}
  } catch(e) {
-  try{closeStore()}catch{}
-  try{setBoot(old)}catch{}
-  try{fs.rmSync(dest,{recursive:true,force:true})}catch{}
-  initStore()
-  getDb().prepare('DELETE FROM migration_history WHERE id=?').run(historyId)
+  if(closed){
+   try{closeStore()}catch{}
+   try{if(bootAttempted)setBoot(old);initStore()}
+   catch(rollbackError){throw new AggregateError([e,rollbackError],'迁移失败且原数据库重新打开失败；原目录和目标内容均已保留，请勿删除并检查存储权限')}
+  }
+  if(recorded)getDb().prepare('DELETE FROM migration_history WHERE id=?').run(historyId)
   throw e
- }
+ }finally{try{migration.cleanup()}catch{/* 只保留无法清理的专属暂存副本，不将清理失败误报为启动定位切换失败。 */}}
 }
 export async function deleteOldData(id:string) {
  const row=getDb().prepare('SELECT * FROM migration_history WHERE id=?').get(id) as {old_path:string;removed:number}|undefined

@@ -1,3 +1,4 @@
+import {msg} from '@/components/ui/message'
 import {useCallback,useEffect,useRef,useState} from 'react'
 import type {QuickLaunchSnapshot} from '@/shared/quickLaunchModels'
 
@@ -33,7 +34,7 @@ export function useQuickLaunch(){
   if(locks.current.has(key))return
   locks.current.add(key);setPending([...locks.current]);setError('')
   try{const value=await fn();await refresh();return value}
-  catch(e){if(mounted.current)setError(e instanceof Error?e.message:String(e));return undefined}
+  catch(e){if(mounted.current)msg.error(e);return undefined}
   finally{locks.current.delete(key);if(mounted.current)setPending([...locks.current])}
  }
  return {...snapshot,loading,error,setError,pending,refresh,action,api:window.toolDock.quickLaunch}

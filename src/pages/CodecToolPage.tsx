@@ -1,3 +1,4 @@
+import {msg} from '@/components/ui/message'
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {ArrowLeftRight,Copy,Download,FileUp,FolderOpen,Plus,Play,RotateCcw,Save,Trash2,X} from 'lucide-react'
 import {DndContext,closestCenter,type DragEndEvent} from '@dnd-kit/core'
@@ -104,28 +105,28 @@ export function CodecToolPage(){
    const item=await window.toolDock.codecPipelines.get(id)
    invalidate();setCurrent(item);const x={name:item.name,description:item.description,steps:item.steps}
    setDraft(x);setBaseline(stamp(x));setSelected(null);setInput('');setMode('pipeline');setLibraryOpen(false)
-  }catch(e){setError(String(e))}
+  }catch(e){msg.error(e)}
  }
  const save=async(asNew=false)=>{
   try{
    const valid=pipelineInputSchema.parse(draft)
    const item=!asNew&&current?await window.toolDock.codecPipelines.update(current.id,current.revision,valid):await window.toolDock.codecPipelines.create(valid)
    setCurrent(item);setDraft({name:item.name,description:item.description,steps:item.steps});setBaseline(stamp({name:item.name,description:item.description,steps:item.steps}))
-   await refresh();setError('')
-  }catch(e){setError(e instanceof Error?e.message:String(e))}
+   await refresh();msg.success('流程已保存')
+  }catch(e){msg.error(e)}
  }
  const duplicate=async(item:PipelineSummary)=>{
-  try{await window.toolDock.codecPipelines.duplicate(item.id);await refresh()}catch(e){setError(String(e))}
+  try{await window.toolDock.codecPipelines.duplicate(item.id);await refresh();msg.success('流程已复制')}catch(e){msg.error(e)}
  }
  const remove=async(item:PipelineSummary)=>{
   if(!(await dialog.confirm({title:'删除保存的流程？',description:'将永久删除「'+item.name+'」，此操作不可撤销。',variant:'danger'})))return
   if(current?.id===item.id&&dirty&&!(await dialog.confirm({title:'放弃未保存修改？',description:'当前流程有未保存修改，删除后无法恢复。',variant:'warning'})))return
-  try{await window.toolDock.codecPipelines.remove(item.id,item.revision);if(current?.id===item.id){setCurrent(null);setBaseline(stamp(blank()))}await refresh()}catch(e){setError(String(e))}
+  try{await window.toolDock.codecPipelines.remove(item.id,item.revision);if(current?.id===item.id){setCurrent(null);setBaseline(stamp(blank()))}await refresh()}catch(e){msg.error(e)}
  }
  const exportConfig=()=>{
   try{const config=pipelineInputSchema.parse(draft)
-   saveText('tooldock-codec-pipeline.json',JSON.stringify({format:'tooldock.codec-pipeline',version:1,pipeline:config},null,2),'application/json;charset=utf-8')
-  }catch(e){setError(String(e))}
+   saveText('tooldock-codec-pipeline.json',JSON.stringify({format:'tooldock.codec-pipeline',version:1,pipeline:config},null,2),'application/json;charset=utf-8');msg.success('配置已导出')
+  }catch(e){msg.error(e)}
  }
  const importConfig=async(file:File)=>{
   if(file.size>65536){setError('流程配置超过 64 KiB');return}
@@ -137,7 +138,7 @@ export function CodecToolPage(){
    setDraft({...data.pipeline,steps:data.pipeline.steps.map(s=>({...s,id:crypto.randomUUID()}))});setMode('pipeline');setSelected(null)
    const yes=await dialog.confirm({title:'导入成功',description:'是否将这个流程保存到 SQLite「我的流程」？取消则仅在当前工作区使用。',confirmText:'保存到我的流程',cancelText:'仅临时使用'})
    if(yes){const x={...data.pipeline,steps:data.pipeline.steps.map(s=>({...s,id:crypto.randomUUID()}))};const item=await window.toolDock.codecPipelines.create(x);setCurrent(item);setDraft(x);setBaseline(stamp(x));await refresh()}
-  }catch(e){setError(e instanceof Error?e.message:String(e))}
+  }catch(e){msg.error(e)}
  }
  const importText=async(file:File)=>{
   if(file.size>MAX_INPUT_BYTES){setError('文件超过 2 MiB');return}
@@ -145,7 +146,7 @@ export function CodecToolPage(){
    editInput(value.charCodeAt(0)===0xFEFF?value.slice(1):value)
   }catch{setError('文件不是合法 UTF-8 文本')}
  }
- const copy=async(value:string)=>{try{await navigator.clipboard.writeText(value)}catch{setError('无法复制到剪贴板')}}
+ const copy=async(value:string)=>{try{await navigator.clipboard.writeText(value);msg.success('已复制')}catch{msg.error('无法复制到剪贴板')}}
  const output=selected?(preview?.id===selected?preview.value:''):(result?.finalValue??'')
  const validOutput=selected?preview?.id===selected:!!result&&result.finalValue!==null
  const selectedStage=selected?(preview?.id===selected?preview.stage:result?.stages.find(x=>x.id===selected)):undefined

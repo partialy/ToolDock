@@ -1,3 +1,4 @@
+import {msg} from '@/components/ui/message'
 import {useEffect,useMemo,useRef,useState} from 'react'
 import {Activity,AlertTriangle,CheckCircle2,ChevronDown,Copy,FolderOpen,Link2,RefreshCw,Search,ShieldAlert,Terminal,Trash2} from 'lucide-react'
 import {Button} from '@/components/ui/button'
@@ -21,11 +22,9 @@ export function CommandToolPage(){
  const [tab,setTab]=useState<Tab>('port')
  const [portText,setPortText]=useState('8080')
  const [portResult,setPortResult]=useState<PortQueryResult|null>(null)
- const [portError,setPortError]=useState('')
  const [portWorking,setPortWorking]=useState(false)
  const [protocol,setProtocol]=useState('all')
  const [state,setState]=useState('all')
- const [killInfo,setKillInfo]=useState('')
  const [junction,setJunction]=useState<JunctionInput>({target:'',parent:'',name:''})
  const [preview,setPreview]=useState<JunctionPreview|null>(null)
  const [previewKey,setPreviewKey]=useState('')
@@ -33,7 +32,6 @@ export function CommandToolPage(){
  const [junctionError,setJunctionError]=useState('')
  const [junctionWorking,setJunctionWorking]=useState(false)
  const [validating,setValidating]=useState(false)
- const [copyMessage,setCopyMessage]=useState('')
  const requestId=useRef(0)
  const key=JSON.stringify(junction)
  const portValid=/^\d{1,5}$/.test(portText)&&Number(portText)>0&&Number(portText)<=65535
@@ -56,14 +54,14 @@ export function CommandToolPage(){
   return()=>{clearTimeout(timer);requestId.current++}
  },[key])
  const copy=async(value:string)=>{
-  try{await navigator.clipboard.writeText(value);setCopyMessage('已复制');setTimeout(()=>setCopyMessage(''),2000)}
-  catch(e){setCopyMessage('复制失败：'+errText(e))}
+  try{await navigator.clipboard.writeText(value);msg.success('已复制')}
+  catch(e){msg.error(e)}
  }
  const query=async()=>{
   if(!portValid||portWorking)return
-  setPortWorking(true);setPortError('');setKillInfo('');setPortResult(null)
+  setPortWorking(true);setPortResult(null)
   try{const result=await window.toolDock.commands.queryPort(Number(portText));setPortResult(result);setState('all');setProtocol('all')}
-  catch(e){setPortError(errText(e))}
+  catch(e){msg.error(e)}
   finally{setPortWorking(false)}
  }
  const terminate=async(row:PortEntry)=>{
@@ -73,13 +71,13 @@ export function CommandToolPage(){
    description:'进程：'+row.name+'（PID '+row.pid+'）\n端口：'+portResult.port+'\n该操作会终止整个进程，而不只是释放这一个端口，其他端口和服务也可能中断。'
   })
   if(!confirmed)return
-  setPortWorking(true);setPortError('');setKillInfo('')
+  setPortWorking(true)
   try{
    const value=await window.toolDock.commands.terminate({port:portResult.port,pid:row.pid,startedAt:row.startedAt,name:row.name})
-   setKillInfo('已结束 '+value.name+'（PID '+value.pid+'），耗时 '+value.durationMs+' ms')
+   msg.success('已结束 '+value.name+'（PID '+value.pid+'），耗时 '+value.durationMs+' ms')
    const latest=await window.toolDock.commands.queryPort(portResult.port)
    setPortResult(latest)
-  }catch(e){setPortError(errText(e))}
+  }catch(e){msg.error(e)}
   finally{setPortWorking(false)}
  }
  const update=(patch:Partial<JunctionInput>)=>{setJunction(old=>({...old,...patch}));setJunctionResult(null);setJunctionError('')}
@@ -87,7 +85,7 @@ export function CommandToolPage(){
   if(busyPick||junctionWorking)return
   setBusyPick(true);setJunctionError('')
   try{const p=await window.toolDock.commands.chooseDirectory();if(p)update({[field]:p})}
-  catch(e){setJunctionError(errText(e))}
+  catch(e){msg.error(e)}
   finally{setBusyPick(false)}
  }
  const create=async()=>{
@@ -98,12 +96,12 @@ export function CommandToolPage(){
   setJunctionWorking(true);setJunctionError('');setJunctionResult(null)
   try{
    const result=await window.toolDock.commands.createJunction(junction)
-   setJunctionResult(result)
+   setJunctionResult(result);msg.success('Junction 链接已创建')
    setPreview(null);setPreviewKey('')
-  }catch(e){setJunctionError(errText(e))}
+  }catch(e){msg.error(e)}
   finally{setJunctionWorking(false)}
  }
- const open=async(p:string)=>{try{await window.toolDock.commands.openFolder(p)}catch(e){setJunctionError(errText(e))}}
+ const open=async(p:string)=>{try{await window.toolDock.commands.openFolder(p)}catch(e){msg.error(e)}}
  return <div className="@container mx-auto max-w-[1500px] space-y-5 p-5">
   <header className="flex flex-wrap items-center gap-3"><span className="rounded-xl bg-indigo-500/15 p-3 text-indigo-400"><ToolPageIcon size={24}/></span><div className="min-w-0 flex-1"><h1 className="text-xl font-semibold">命令执行</h1><p className="mt-1 text-xs muted">Windows 本地系统工具 · 仅支持内置操作，不执行自定义脚本</p></div><span className="rounded-full border border-[var(--border)] px-3 py-1.5 text-xs muted"><ShieldAlert size={13} className="mr-1 inline"/> 当前用户权限</span></header>
   <div role="tablist" aria-label="命令执行功能" className="inline-flex gap-1 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-1">
@@ -120,8 +118,6 @@ export function CommandToolPage(){
    </section>
    <section className={CARD+' space-y-4'}>
     <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-semibold">查询结果</h2><p className="mt-1 text-xs muted">{portResult?'端口 '+portResult.port+' · '+portResult.rows.length+' 条连接 / 端点 · '+uniquePids+' 个 PID · '+portResult.durationMs+' ms':'输入端口并开始查询'}</p></div>{portResult&&<Button size="sm" disabled={portWorking} onClick={()=>void query()}><RefreshCw size={14}/> 刷新</Button>}</div>
-    {killInfo&&<div role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-xs text-emerald-400"><CheckCircle2 size={15} className="mr-2 inline"/>{killInfo}</div>}
-    {portError&&<div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/5 p-3 text-xs text-red-400"><AlertTriangle size={15} className="mr-2 inline"/>{portError}</div>}
     {portResult&&portResult.rows.length>0&&<div className="flex flex-wrap gap-2"><SelectField ariaLabel="协议筛选" value={protocol} onValueChange={setProtocol} options={[{value:'all',label:'全部协议'},{value:'TCP',label:'TCP'},{value:'UDP',label:'UDP'}]} className="min-w-36"/><SelectField ariaLabel="连接状态筛选" value={state} onValueChange={setState} options={[{value:'all',label:'全部状态'},...states.map(s=>({value:s,label:s}))]} className="min-w-36"/></div>}
     {portResult?(portResult.rows.length===0?<div className="rounded-xl border border-dashed border-[var(--border)] py-14 text-center text-sm muted">未发现占用该本地端口的 TCP/UDP 连接</div>:<div className="overflow-x-auto rounded-xl border border-[var(--border)]"><table className="w-full min-w-[770px] text-left text-xs"><thead className="bg-[var(--panel-alt)] text-[var(--muted)]"><tr><th className="p-3">协议</th><th className="p-3">本地地址</th><th className="p-3">远程地址</th><th className="p-3">状态</th><th className="p-3">进程</th><th className="p-3">PID</th><th className="p-3">操作</th></tr></thead><tbody>{filtered.map((r,i)=><tr key={r.protocol+'-'+r.pid+'-'+r.localAddress+'-'+r.localPort+'-'+i} className="border-t border-[var(--border)]"><td className="p-3">{r.protocol}<span className="ml-1 text-[10px] muted">{r.family==='IPv6'?'v6':'v4'}</span></td><td className="p-3"><Address address={r.localAddress} port={r.localPort}/></td><td className="p-3"><Address address={r.remoteAddress} port={r.remotePort}/></td><td className="p-3">{r.state}</td><td className="max-w-44 truncate p-3" title={r.executablePath||r.name||'未知'}>{r.name?<button className="hover:text-indigo-400" onClick={()=>void copy(r.name!)} title="复制进程名称">{r.name} <Copy size={11} className="inline"/></button>:'未知'}</td><td className="p-3"><button title="复制 PID" onClick={()=>void copy(String(r.pid))} className="font-mono hover:text-indigo-400">{r.pid} <Copy size={11} className="inline"/></button></td><td className="p-3">{r.canTerminate?<Button variant="danger" size="sm" disabled={portWorking} onClick={()=>void terminate(r)}><Trash2 size={13}/>结束</Button>:<span className="text-[11px] muted" title={r.blockReason||''}>不可结束</span>}</td></tr>)}</tbody></table>{filtered.length===0&&<p className="p-5 text-center text-xs muted">当前筛选条件没有匹配记录</p>}</div>):<div className="rounded-xl border border-dashed border-[var(--border)] py-14 text-center text-sm muted"><Terminal size={24} className="mx-auto mb-3 opacity-50"/>暂无查询结果</div>}
     {portResult&&<details className="group rounded-xl bg-[var(--panel-alt)] p-3 text-xs"><summary className="cursor-pointer select-none text-[var(--muted)]"><ChevronDown size={14} className="mr-1 inline"/> 技术详情（原始 PowerShell JSON / 结构化数据）</summary><pre className="mt-3 max-h-72 overflow-auto break-words whitespace-pre-wrap font-mono text-[11px]">{JSON.stringify(portResult,null,2)}</pre><Button size="sm" onClick={()=>void copy(JSON.stringify(portResult,null,2))}><Copy size={13}/> 复制结果</Button></details>}
@@ -144,6 +140,5 @@ export function CommandToolPage(){
     {junctionResult?<div className="space-y-4"><div role="status" className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm text-emerald-400"><CheckCircle2 size={17}/> Junction 创建成功</div><div className="space-y-3 text-xs"><div><p className="mb-1 muted">目标目录</p><p className="break-all font-mono">{junctionResult.target}</p><Button size="sm" variant="ghost" onClick={()=>void copy(junctionResult.target)}><Copy size={13}/>复制目标路径</Button></div><div><p className="mb-1 muted">Junction 链接</p><p className="break-all font-mono">{junctionResult.linkPath}</p><div className="mt-2 flex flex-wrap gap-2"><Button size="sm" onClick={()=>void copy(junctionResult.linkPath)}><Copy size={13}/>复制链接路径</Button><Button size="sm" onClick={()=>void open(junctionResult.linkPath)}><FolderOpen size={13}/>打开链接文件夹</Button></div></div><p className="muted">执行耗时 {junctionResult.durationMs} ms · 类型 Junction（目录联接）</p></div></div>:<div className="rounded-xl border border-dashed border-[var(--border)] py-14 text-center text-sm muted"><FolderOpen size={26} className="mx-auto mb-3 opacity-50"/>创建成功后显示链接详情</div>}
    </section>
   </div>}
-  {copyMessage&&<p role="status" className="fixed bottom-6 right-6 z-50 rounded-lg border border-[var(--border)] bg-[var(--panel)] px-4 py-3 text-xs shadow-lg">{copyMessage}</p>}
  </div>
 }

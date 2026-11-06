@@ -1,3 +1,4 @@
+import {msg} from '@/components/ui/message'
 import {useEffect,useMemo,useState} from 'react'
 import {History,Search,Trash2} from 'lucide-react'
 import {Modal} from '@/components/ui/dialog'
@@ -9,9 +10,9 @@ import type {ShareHistory,AddSourcesResult} from '@/shared/fileTransferModels'
 export function ShareHistoryDialog({open,onClose,onRestored}:{open:boolean;onClose:()=>void;onRestored:(result:AddSourcesResult)=>void}){
  const dialogs=useDialog()
  const [rows,setRows]=useState<ShareHistory[]>([]),[search,setSearch]=useState(''),[selected,setSelected]=useState<string[]>([])
- const [busy,setBusy]=useState(false),[error,setError]=useState('')
+ const [busy,setBusy]=useState(false)
  const refresh=async()=>setRows(await window.toolDock.transfer.history.list())
- useEffect(()=>{if(open){void refresh().catch(e=>setError(String(e)))}else{setSelected([]);setSearch('');setError('')}},[open])
+ useEffect(()=>{if(open){void refresh().catch(e=>msg.error(e))}else{setSelected([]);setSearch('')}},[open])
  const filtered=useMemo(()=>rows.filter(x=>(x.name+' '+x.path).toLocaleLowerCase().includes(search.toLocaleLowerCase())),[rows,search])
  const toggle=(id:string)=>setSelected(v=>v.includes(id)?v.filter(x=>x!==id):[...v,id])
  const allSelected=filtered.length>0&&filtered.every(x=>selected.includes(x.id))
@@ -19,12 +20,12 @@ export function ShareHistoryDialog({open,onClose,onRestored}:{open:boolean;onClo
  const remove=async(id:string)=>{await window.toolDock.transfer.history.remove(id);setSelected(v=>v.filter(x=>x!==id));await refresh()}
  const clear=async()=>{
   if(!await dialogs.confirm({title:'清空分享历史',description:'确定清空最近使用的全部分享源路径吗？这不会删除任何磁盘文件或当前分享。',variant:'danger',confirmText:'清空历史'}))return
-  try{setBusy(true);await window.toolDock.transfer.history.clear();setRows([]);setSelected([])}catch(e){setError(String(e))}finally{setBusy(false)}
+  try{setBusy(true);await window.toolDock.transfer.history.clear();setRows([]);setSelected([])}catch(e){msg.error(e)}finally{setBusy(false)}
  }
  const restore=async()=>{
   if(!selected.length)return
   try{setBusy(true);const result=await window.toolDock.transfer.history.restore(selected);onRestored(result);onClose()}
-  catch(e){setError(String(e))}finally{setBusy(false)}
+  catch(e){msg.error(e)}finally{setBusy(false)}
  }
  return <Modal open={open} onOpenChange={v=>{if(!v)onClose()}} title="分享历史记录" width="workspace" footer={<>
   <Button onClick={onClose}>取消</Button>
@@ -42,10 +43,9 @@ export function ShareHistoryDialog({open,onClose,onRestored}:{open:boolean;onClo
      <input type="checkbox" aria-label={'选择 '+x.name} checked={selected.includes(x.id)} onChange={()=>toggle(x.id)}/>
      <History size={16} className="shrink-0 text-indigo-400"/>
      <div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold">{x.kind==='directory'?'文件夹 · ':'文件 · '}{x.name}</p><p title={x.path} className="truncate text-[11px] muted">{x.path}</p><p className={'text-[10px] '+(x.available===false?'text-amber-500':'muted')}>{x.available===false?'路径不可用 · ':''}最近使用：{new Date(x.lastUsedAt).toLocaleString()}</p></div>
-     <Button size="sm" variant="ghost" onClick={()=>void remove(x.id).catch(e=>setError(String(e)))} title="删除这条历史"><Trash2 size={15}/></Button>
+     <Button size="sm" variant="ghost" onClick={()=>void remove(x.id).catch(e=>msg.error(e))} title="删除这条历史"><Trash2 size={15}/></Button>
     </div>)}
    </div>
-   {error&&<p role="alert" className="text-xs text-red-400">{error}</p>}
   </div>
  </Modal>
 }

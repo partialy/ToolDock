@@ -1,3 +1,4 @@
+import {msg} from '@/components/ui/message'
 import {useCallback,useEffect,useRef,useState} from 'react'
 import {ArrowLeftRight,ArrowDown,ArrowUp,Check,Copy,FileUp,GitCompareArrows,PenLine,Play,RotateCcw} from 'lucide-react'
 import {useVirtualizer} from '@tanstack/react-virtual'
@@ -64,8 +65,8 @@ export function TextDiffPage(){
  // eslint-disable-next-line react-hooks/exhaustive-deps
  },[viewing,result])
  const copy=async(value:string)=>{
-  try{await navigator.clipboard.writeText(value);setError('')}
-  catch{setError('复制到剪贴板失败')}
+  try{await navigator.clipboard.writeText(value);msg.success('已复制')}
+  catch{msg.error('复制到剪贴板失败')}
  }
  const sourcePanel=(side:Side)=>{
   const value=side==='left'?left:right

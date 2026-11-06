@@ -2,14 +2,23 @@ import {z} from 'zod'
 
 export const mediaKindSchema=z.enum(['extract','subtitle'])
 export type MediaKind=z.infer<typeof mediaKindSchema>
+const mediaPreferenceFields={
+ outputFormat:z.enum(['mp3','wav','flac','m4a','copy']),bitrate:z.enum(['128k','192k','256k','320k']),
+ outputDirectory:z.string().max(4096),computeMode:z.enum(['auto','cpu','gpu']),
+ language:z.enum(['auto','zh','en']),selectedModelId:z.string().max(100),
+ modelDirectory:z.string().max(4096),accelerationEnabled:z.boolean(),parallelSegments:z.number().int().min(1).max(8),
+ ffmpegOverride:z.string().max(4096)
+}
 export const mediaPreferencesSchema=z.strictObject({
- outputFormat:z.enum(['mp3','wav','flac','m4a','copy']).default('mp3'),bitrate:z.enum(['128k','192k','256k','320k']).default('192k'),
- outputDirectory:z.string().max(4096).default(''),computeMode:z.enum(['auto','cpu','gpu']).default('auto'),
- language:z.enum(['auto','zh','en']).default('auto'),selectedModelId:z.string().max(100).default('small'),
- modelDirectory:z.string().max(4096).default(''),accelerationEnabled:z.boolean().default(false),parallelSegments:z.number().int().min(1).max(8).default(4),
- ffmpegOverride:z.string().max(4096).default('')
+ outputFormat:mediaPreferenceFields.outputFormat.default('mp3'),bitrate:mediaPreferenceFields.bitrate.default('192k'),
+ outputDirectory:mediaPreferenceFields.outputDirectory.default(''),computeMode:mediaPreferenceFields.computeMode.default('auto'),
+ language:mediaPreferenceFields.language.default('auto'),selectedModelId:mediaPreferenceFields.selectedModelId.default('small'),
+ modelDirectory:mediaPreferenceFields.modelDirectory.default(''),accelerationEnabled:mediaPreferenceFields.accelerationEnabled.default(false),parallelSegments:mediaPreferenceFields.parallelSegments.default(4),
+ ffmpegOverride:mediaPreferenceFields.ffmpegOverride.default('')
 })
 export type MediaPreferences=z.infer<typeof mediaPreferencesSchema>
+// Zod 4 会为 optional/default 字段补默认值；更新补丁必须基于无默认值的字段。
+export const mediaPreferencesPatchSchema=z.strictObject(mediaPreferenceFields).partial().transform(patch=>Object.fromEntries(Object.entries(patch).filter(([,value])=>value!==undefined)) as Partial<MediaPreferences>)
 export const defaultMediaPreferences=mediaPreferencesSchema.parse({})
 export interface AudioTrack {index:number;codec:string;language:string;title:string;channels:number}
 export interface MediaProbe {duration:number;hasVideo:boolean;audioTracks:AudioTrack[]}

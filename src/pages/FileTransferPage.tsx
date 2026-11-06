@@ -1,3 +1,4 @@
+import {msg} from '@/components/ui/message'
 import {useCallback,useEffect,useMemo,useState} from 'react'
 import {ArrowDownToLine,ArrowUpFromLine,BellRing,Check,Copy,Download,FolderOpen,Folder,FolderPlus,ChevronDown,ChevronRight,History,HardDrive,MonitorUp,Plus,Power,RefreshCw,ShieldCheck,Trash2,Users,Wifi,X} from 'lucide-react'
 import {Button} from '@/components/ui/button'
@@ -19,7 +20,7 @@ export function FileTransferPage(){
  const [selectedIp,setSelectedIp]=useState('')
  const [tab,setTab]=useState<'shares'|'incoming'|'tasks'|'devices'>('shares')
  const [qr,setQr]=useState('')
- const [busy,setBusy]=useState(false),[error,setError]=useState(''),[success,setSuccess]=useState('')
+ const [busy,setBusy]=useState(false)
  const pending=snapshot?.incoming.filter(x=>x.status==='pending')||[]
  const [checked,setChecked]=useState<string[]>([])
  const [historyOpen,setHistoryOpen]=useState(false)
@@ -27,7 +28,7 @@ export function FileTransferPage(){
  const [directories,setDirectories]=useState<Record<string,DirectoryPage>>({})
  const [directoryStats,setDirectoryStats]=useState<Record<string,DirectoryStats>>({})
  const load=useCallback(()=>window.toolDock.transfer.status().then(next=>{setSnapshot(next);setSelectedIp(old=>old||next.address||next.interfaces[0]?.address||'')}),[])
- useEffect(()=>{void load().catch(e=>setError(fallback(e)));return window.toolDock.transfer.onChange(next=>setSnapshot(next))},[load])
+ useEffect(()=>{void load().catch(e=>msg.error(e));return window.toolDock.transfer.onChange(next=>setSnapshot(next))},[load])
  useEffect(()=>{
   const listener=()=>setTab('incoming')
   window.addEventListener('tooldock:show-incoming',listener)
@@ -42,9 +43,9 @@ export function FileTransferPage(){
   return()=>{canceled=true;if(url)URL.revokeObjectURL(url)}
  },[snapshot?.qrUrl])
  const run=async(action:()=>Promise<unknown>,message='操作成功')=>{
-  setBusy(true);setError('');setSuccess('')
-  try{await action();await load();setSuccess(message)}
-  catch(e){setError(fallback(e))}
+  setBusy(true)
+  try{await action();await load();msg.success(message)}
+  catch(e){msg.error(e)}
   finally{setBusy(false)}
  }
  const start=()=>void run(async()=>{if(!selectedIp)throw Error('请选择局域网 IP');await window.toolDock.transfer.start(selectedIp)},'局域网服务器已启动')
@@ -58,7 +59,7 @@ export function FileTransferPage(){
   const prefs={...snapshot.prefs,...partial}
   await run(()=>window.toolDock.transfer.setPrefs(prefs),'设置已保存')
  }
- const copy=async(value:string)=>{try{await navigator.clipboard.writeText(value);setSuccess('已复制到剪贴板')}catch(e){setError(fallback(e))}}
+ const copy=async(value:string)=>{try{await navigator.clipboard.writeText(value);msg.success('已复制到剪贴板')}catch(e){msg.error(e)}}
  const approve=async(ids:string[])=>{
   if(!ids.length)return
   const total=pending.filter(v=>ids.includes(v.id)).reduce((n,v)=>n+v.size,0)
@@ -76,8 +77,8 @@ export function FileTransferPage(){
  }
  const addDropped=async(files:File[])=>{
   const paths=files.map(f=>window.toolDock.transfer.pathForDroppedFile(f)).filter(Boolean)
-  if(!paths.length){setError('无法从拖入项目获取本机路径，请使用“添加文件夹”或“添加文件”按钮');return}
-  try{const result=await window.toolDock.transfer.addSources(paths);await load();setError(result.errors.join('\n'));setSuccess('已添加 '+result.added+' 项，跳过 '+result.skipped+' 项')}catch(e){setError(fallback(e))}
+  if(!paths.length){msg.warning('无法从拖入项目获取本机路径，请使用“添加文件夹”或“添加文件”按钮');return}
+  try{const result=await window.toolDock.transfer.addSources(paths);await load();if(result.errors.length)msg.warning(result.errors.join('\n'));msg.success('已添加 '+result.added+' 项，跳过 '+result.skipped+' 项')}catch(e){msg.error(e)}
  }
  const dropOver=useWindowFileDrop(addDropped)
  const toggleFolder=async(id:string)=>{
@@ -86,14 +87,14 @@ export function FileTransferPage(){
  }
  const loadDirectory=async(id:string,cursor?:string)=>{
   try{const page=await window.toolDock.transfer.directory(id,cursor);setDirectories(old=>({...old,[id]:cursor?{...page,items:[...(old[id]?.items||[]),...page.items]}:page}))}
-  catch(e){setError(fallback(e))}
+  catch(e){msg.error(e)}
  }
  const renderDirectory=(id:string):React.ReactNode=>{
   const page=directories[id];if(!page)return <p className="py-2 text-xs muted">正在加载目录...</p>
   return <div className="space-y-1">{page.items.map(entry=><div key={entry.id}><div className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs"><button className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={()=>entry.kind==='directory'?void toggleFolder(entry.id):undefined}>{entry.kind==='directory'?(expanded.includes(entry.id)?<ChevronDown size={13}/>:<ChevronRight size={13}/>):<span className="w-[13px]"/>}{entry.kind==='directory'?<Folder size={14} className="text-indigo-400"/>:<HardDrive size={14}/>}<span className="min-w-0 truncate">{entry.name}</span></button><span className="muted">{entry.kind==='file'?human(entry.size):''}</span></div>{entry.kind==='directory'&&expanded.includes(entry.id)&&<div className="ml-5 border-l border-[var(--border)] pl-2">{renderDirectory(entry.id)}</div>}</div>)}{page.nextCursor&&<Button size="sm" variant="ghost" onClick={()=>void loadDirectory(id,page.nextCursor||undefined)}>加载更多</Button>}</div>
  }
- const inspectFolder=async(id:string)=>{try{const result=await window.toolDock.transfer.directoryStats(id);setDirectoryStats(old=>({...old,[id]:result}))}catch(e){setError(fallback(e))}}
- const restoreHistory=(result:AddSourcesResult)=>{void load();setError(result.errors.join('\n'));setSuccess('恢复 '+result.added+' 项，跳过 '+result.skipped+' 项')}
+ const inspectFolder=async(id:string)=>{try{const result=await window.toolDock.transfer.directoryStats(id);setDirectoryStats(old=>({...old,[id]:result}))}catch(e){msg.error(e)}}
+ const restoreHistory=(result:AddSourcesResult)=>{void load();if(result.errors.length)msg.warning(result.errors.join('\n'));msg.success('恢复 '+result.added+' 项，跳过 '+result.skipped+' 项')}
  const tabs=[{id:'shares',name:'分享文件',count:snapshot?.shares.length||0},{id:'incoming',name:'待接收',count:pending.length},{id:'tasks',name:'传输记录',count:snapshot?.tasks.length||0},{id:'devices',name:'已连接设备',count:snapshot?.devices.length||0}] as const
  return <div className="relative @container mx-auto max-w-[1460px] space-y-4 p-5">
   <header className="flex flex-wrap items-center gap-3"><span className="rounded-xl bg-indigo-500/15 p-3 text-indigo-400"><ToolPageIcon size={24}/></span><div className="min-w-0 flex-1"><h1 className="text-xl font-semibold">文件快传</h1><p className="mt-1 text-xs muted">在可信局域网内共享文件、接收设备上传 · 纯本地传输</p></div>
@@ -146,6 +147,6 @@ export function FileTransferPage(){
   </section>
   <DropOverlay visible={dropOver} label="释放以分享文件或文件夹"/>
   <ShareHistoryDialog open={historyOpen} onClose={()=>setHistoryOpen(false)} onRestored={restoreHistory}/>
-  {error&&<p role="alert" className="rounded-xl border border-red-500/30 p-3 text-xs text-red-400">{error}</p>}{success&&<p role="status" className="text-xs text-emerald-400">{success}</p>}
+
  </div>
 }

@@ -1,3 +1,4 @@
+import {msg} from '@/components/ui/message'
 import {useEffect,useMemo,useState} from 'react'
 import {ChevronDown,Library,Plus,RefreshCw,Search,Zap} from 'lucide-react'
 import {Button} from '@/components/ui/button'
@@ -46,7 +47,7 @@ export function QuickLaunchPage({trigger}:{trigger:'single'|'double'}){
   const task=tasks.get(app.id)
   if(action==='run'){void run(app);return}
   if(action==='details'){if(task)setTaskId(task.id);return}
-  if(action==='copy'){void q.action(app.id,()=>navigator.clipboard.writeText(app.sourceKind==='inline'?app.inlineContent:app.scriptName||app.managedScript||''));return}
+  if(action==='copy'){void q.action(app.id,async()=>{await navigator.clipboard.writeText(app.sourceKind==='inline'?app.inlineContent:app.scriptName||app.managedScript||'');msg.success('已复制')});return}
   if(action==='stop'){if(task)void q.action(app.id,async()=>{if(await dialog.confirm({title:'停止任务？',description:`停止“${app.name}”及身份已核验的受控进程组？`,variant:'danger',confirmText:'停止任务'}))await q.api.stop(task.id)});return}
   if(lockedIds.has(app.id))return
   if(action==='edit')setEditor({app})

@@ -3,6 +3,7 @@ import {AnimatePresence,motion} from 'motion/react'
 import {Bell,X,AlertTriangle,CheckCircle2,Info} from 'lucide-react'
 import type {NotificationPosition} from '@/shared/fileTransferModels'
 import {useMicroMotion} from '@/components/ui/motion-preference'
+import {msg} from '@/components/ui/message'
 type Level='info'|'success'|'warning'|'error'
 type Item={id:number;title:string;description:string;level:Level;action?:()=>void;sticky:boolean;dedupeKey?:string}
 type Push=(data:{title:string;description:string;level?:Level;action?:()=>void;sticky?:boolean;dedupeKey?:string})=>void
@@ -15,6 +16,7 @@ export function NotificationProvider({children,position,onOpenTransfer,previewPo
  const {off,reduced}=useMicroMotion()
  const dismiss=useCallback((id:number)=>{setItems(a=>a.filter(t=>t.id!==id));const timer=timers.current.get(id);if(timer)clearTimeout(timer);timers.current.delete(id)},[])
  const push=useCallback<Push>(item=>{
+  if(!item.action){msg[item.level||'info']([item.title,item.description].filter(Boolean).join('：'),{duration:item.sticky?0:undefined,dedupeKey:item.dedupeKey});return}
   const id=++counter.current
   setItems(prev=>{
    const old=item.dedupeKey?prev.find(v=>v.dedupeKey===item.dedupeKey):null
@@ -34,7 +36,7 @@ export function NotificationProvider({children,position,onOpenTransfer,previewPo
   if(lastPosition.current===null){lastPosition.current=position;return}
   if(lastPosition.current!==position){
    lastPosition.current=position
-   push({title:'通知位置已更新',description:'今后的应用内通知将在这里显示。',level:'info',dedupeKey:'notification-position-preview'})
+   push({title:'通知位置已更新',description:'文件快传等可操作提醒的位置已更新。',level:'info',dedupeKey:'notification-position-preview'})
   }
  },[position,previewPositionChanges,push])
  useEffect(()=>()=>{for(const timer of timers.current.values())clearTimeout(timer);timers.current.clear()},[])

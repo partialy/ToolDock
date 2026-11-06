@@ -10,6 +10,7 @@ import { EditorDialog } from '@/components/forms/EditorDialog'
 import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/dialog'
 import { DialogProvider } from '@/components/ui/dialog-provider'
+import { MsgViewport,msg } from '@/components/ui/message'
 import {ToolPageIconProvider} from '@/components/ui/tool-page-icon'
 import { useWorkspace } from '@/store/useWorkspace'
 import { HomePage } from '@/pages/HomePage'
@@ -65,6 +66,7 @@ export default function App(){
  useEffect(()=>{let live=true;void window.toolDock.transfer.status().then(s=>{if(live)setTransferRunning(s.running)}).catch(()=>{});const off=window.toolDock.transfer.onChange(s=>{if(live)setTransferRunning(s.running)});return()=>{live=false;off()}},[])
  const [editor,setEditor]=useState<Editor>(null)
  const [unsaved,setUnsaved]=useState(false)
+ useEffect(()=>{if(ws.error){msg.error(ws.error);ws.setError('')}},[ws.error,ws.setError])
  const [pending,setPending]=useState<{kind:'push';destination:string}|{kind:'move';index:number}|null>(null)
  useEffect(()=>{const listener=(e:Event)=>setUnsaved(Boolean((e as CustomEvent<boolean>).detail));window.addEventListener('tooldock:unsaved',listener);return()=>window.removeEventListener('tooldock:unsaved',listener)},[])
  const active=history[position]||'home'
@@ -112,7 +114,7 @@ export default function App(){
      </AnimatePresence>}
     </main>
    </div>
-   {ws.error&&<div role="alert" className="absolute bottom-4 right-4 z-50 max-w-lg rounded-xl border border-red-500/40 bg-[var(--panel)] p-4 text-sm text-red-400 shadow-xl"><button aria-label="关闭错误" onClick={()=>ws.setError('')} className="float-right ml-4">×</button>{ws.error}</div>}
+   <MsgViewport/>
    <EditorDialog edit={editor} onClose={closeEditor} ws={ws}/>
    <Modal open={Boolean(pending)} onOpenChange={v=>{if(!v)setPending(null)}} title="离开当前工具？" footer={<><Button onClick={()=>setPending(null)}>继续编辑</Button><Button variant="primary" onClick={confirmNavigation}>确认离开</Button></>}><p className="text-sm muted">当前工具存在尚未保存的配置、输入内容或未导出的处理结果。离开后可能丢失临时工作区，是否继续？</p></Modal>
   </div>

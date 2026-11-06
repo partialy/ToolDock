@@ -2,7 +2,7 @@ import {dialog,shell,type BrowserWindow} from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import {z} from 'zod'
-import {mediaKindSchema,mediaPreferencesSchema} from '../../../../src/shared/mediaModels'
+import {mediaKindSchema,mediaPreferencesSchema,mediaPreferencesPatchSchema} from '../../../../src/shared/mediaModels'
 import type {MediaService} from './media-service'
 
 export function registerMediaIpc(register:(channel:string,fn:(payload:any)=>unknown)=>void,service:MediaService,getWindow:()=>BrowserWindow|null){
@@ -29,7 +29,7 @@ export function registerMediaIpc(register:(channel:string,fn:(payload:any)=>unkn
   if(path.resolve(result.filePath).toLowerCase()===path.resolve(task.inputPath).toLowerCase())throw Error('不能覆盖原始媒体文件')
   await fs.writeFile(result.filePath,text);return result.filePath
  })
- register('media:setPreferences',input=>service.setPreferences(mediaPreferencesSchema.partial().parse(input)))
+ register('media:setPreferences',input=>service.setPreferences(mediaPreferencesPatchSchema.parse(input)))
  register('media:chooseFfmpeg',async()=>{const r=await dialog.showOpenDialog(window(),{properties:['openFile'],filters:[{name:'FFmpeg',extensions:['exe']}]});if(r.canceled||!r.filePaths[0])return null;await service.setFfmpegOverride(r.filePaths[0]);return r.filePaths[0]})
  register('media:models:download',input=>service.models.download(id.parse(input)))
  register('media:models:pause',input=>service.models.pause(id.parse(input)))

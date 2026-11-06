@@ -1,3 +1,4 @@
+import {msg} from '@/components/ui/message'
 import { useState } from 'react'
 import { Copy, Download, Eye, EyeOff, KeyRound, RefreshCw, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -15,9 +16,9 @@ function download(name:string,contents:string){
 export function KeyGeneratorPage(){
  const [aesFormat,setAesFormat]=useState<'hex'|'base64'|'base64url'>('hex'),[excludeAmbiguous,setExcludeAmbiguous]=useState(true)
  const [customChars,setCustomChars]=useState(''),[ecCurve,setEcCurve]=useState<'P-256'|'P-384'>('P-256')
- const [kind,setKind]=useState<Kind>('ssh'),[sshKind,setSshKind]=useState<'ed25519'|'rsa'>('ed25519'),[bits,setBits]=useState(3072),[aesBits,setAesBits]=useState<128|256>(256),[length,setLength]=useState(32),[chars,setChars]=useState({...alphabetSets}),[comment,setComment]=useState('tooldock'),[passphrase,setPassphrase]=useState(''),[result,setResult]=useState<CryptoResult|null>(null),[busy,setBusy]=useState(false),[showSecret,setShowSecret]=useState(false),[error,setError]=useState('')
- const chooseKind=(k:Kind)=>{setKind(k);setResult(null);setShowSecret(false);setError('')}
- const gen=async()=>{setBusy(true);setError('');setResult(null);setShowSecret(false)
+ const [kind,setKind]=useState<Kind>('ssh'),[sshKind,setSshKind]=useState<'ed25519'|'rsa'>('ed25519'),[bits,setBits]=useState(3072),[aesBits,setAesBits]=useState<128|256>(256),[length,setLength]=useState(32),[chars,setChars]=useState({...alphabetSets}),[comment,setComment]=useState('tooldock'),[passphrase,setPassphrase]=useState(''),[result,setResult]=useState<CryptoResult|null>(null),[busy,setBusy]=useState(false),[showSecret,setShowSecret]=useState(false)
+ const chooseKind=(k:Kind)=>{setKind(k);setResult(null);setShowSecret(false)}
+ const gen=async()=>{setBusy(true);setResult(null);setShowSecret(false)
   try {
    let res:CryptoResult
    if(kind==='rsa')res=await window.toolDock.crypto.rsa(bits,passphrase||undefined)
@@ -30,9 +31,9 @@ export function KeyGeneratorPage(){
     res=await window.toolDock.crypto.random(length,filter(Object.values(chars).join('')+customChars),groups)
    }
    setResult(res)
-  }catch(e){setError(e instanceof Error?e.message:String(e))}finally{setBusy(false)}
+  }catch(e){msg.error(e)}finally{setBusy(false)}
  }
- const copy=async(value:string)=>{try{await navigator.clipboard.writeText(value)}catch{setError('无法复制到剪贴板')}}
+ const copy=async(value:string)=>{try{await navigator.clipboard.writeText(value);msg.success('已复制')}catch{msg.error('无法复制到剪贴板')}}
  const displaySecret=(value:string)=>{if(kind!=='aes'||aesFormat==='hex')return value;const raw=value.match(/../g)!.map(s=>String.fromCharCode(parseInt(s,16))).join('');const b64=btoa(raw);return aesFormat==='base64'?b64:b64.split('+').join('-').split('/').join('_').replace(/=+$/,'')}
  const renderOutput=(title:string,value:string,filename:string,sensitive:boolean)=><section className="space-y-2">
   <div className="flex items-center justify-between"><h3 className="text-xs font-medium muted">{title}</h3><div className="flex gap-1">
@@ -68,6 +69,5 @@ export function KeyGeneratorPage(){
    {result.secret&&renderOutput('密钥 / 随机字符串',displaySecret(result.secret),kind==='aes'?'aes-key.txt':'random.txt',true)}
    <p className="text-xs muted">关闭当前页面会清除本页结果；复制到剪贴板后请注意其他应用可读取剪贴板内容。</p>
   </div>}
-  {error&&<p className="text-sm text-red-400" role="alert">{error}</p>}
  </div>
 }

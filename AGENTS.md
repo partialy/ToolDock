@@ -49,3 +49,7 @@
 - 媒体始终本地处理，提取并发2、字幕串行1；只允许白名单参数构造 `shell:false` 子进程。输出暂存后原子提交，禁止覆盖源文件和既有目标；正式退出取消受控进程，异常恢复标中断，不自动重跑。SQLite 只留最近100条终态元信息，不存媒体正文。
 - FFmpeg/ffprobe 使用锁定 GitHub BtbN LGPL 资产、CPU Whisper 随包、CUDA 同版本官方资产按需安装，均验证SHA-256；资源在 `resources/media/bin`（忽略提交），锁文件和获取脚本提交。禁止复制本机GPL FFmpeg。设备显示依据实际引擎初始化，强制GPU失败不降级，自动模式失败明确回退CPU。
 - Whisper 模型按需获取、支持离线导入与引用；下载加速默认关闭，仅代理模型请求，失败回退直连。Range/Content-Range/版本/长度/哈希必须验证，暂存未完成文件不能作为模型。模型、CUDA与媒体缓存排除普通备份，目录迁移与媒体/下载/数据恢复互斥；详见 `docs/video-processing.md`。
+
+- 媒体偏好更新使用无默认值的 `mediaPreferencesPatchSchema`；禁止对含 `default()` 的完整 schema 直接 `.partial()` 解析补丁，防止 Zod 4 注入未提交字段、覆盖偏好或误触目录限制。
+- 普通操作反馈统一使用 `src/components/ui/message.tsx` 的 `msg.success/error/warning/info/loading`，由 App 挂载 `MsgViewport` 顶部展示；尾部支持复制完整详情及关闭，遵循主题和动效偏好。错误展示去除 Electron IPC 外壳，复制保留诊断详情。不得新增页面内临时成功/错误条；输入验证、编辑器定位、任务历史诊断保留所属业务区域。文件快传等带操作的提醒仍由 NotificationProvider 管理。
+- 数据目录迁移由 `services/data-migration.ts` 先在目标同父独立暂存目录复制、校验，再排他提交；预建目标目录本身和用户并发写入内容必须保留。失败只清理身份核验后的自有暂存目录，严禁递归删除用户选择的目标；启动定位/新数据库失败时恢复原目录，清理异常不得遮蔽提交结果。
