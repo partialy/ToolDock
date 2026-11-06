@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto'
 import AdmZip from 'adm-zip'
 import type {DownloadState,MediaPreferences,ModelRecord} from '../../../../src/shared/mediaModels'
 import {CUDA_ASSET,MODEL_CATALOG,catalogModel} from './model-catalog'
-import {downloadAsset,sha256} from './model-download'
+import {downloadAsset,readDownloadProgress,sha256} from './model-download'
 import {mediaBinaryRoot} from './engines'
 import {getDb} from '../../database/store'
 
@@ -31,9 +31,14 @@ export class ModelStorage {
   for(const model of MODEL_CATALOG){const file=path.join(this.directory(),'ggml-'+model.id+'.bin');const stat=await fs.stat(file).catch(()=>null);let verified=false
    if(stat?.isFile()&&stat.size===model.bytes)verified=await this.verifiedHash(file,model.sha256)
    result.push({...model,path:stat?file:undefined,installed:verified,verified})
-   if(!this.states.has(model.id)){const part=file+'.part',metadata=await fs.readFile(part+'.json','utf8').then(x=>JSON.parse(x)).catch(()=>null);if(metadata?.hash===model.sha256&&Array.isArray(metadata.segments))this.states.set(model.id,{id:model.id,state:'paused',received:metadata.segments.filter((s:{done:boolean})=>s.done).reduce((n:number,s:{start:number;end:number})=>n+s.end-s.start+1,0),total:model.bytes})}
+   if(!this.states.has(model.id)){const received=await readDownloadProgress(model,file);if(received!==null)this.states.set(model.id,{id:model.id,state:'paused',received,total:model.bytes})}
   }
   for(const m of await this.imports()){const stat=await fs.stat(m.path).catch(()=>null),intact=stat?.size===m.bytes&&await this.verifiedHash(m.path,m.sha256);result.push({...m,url:'',installed:Boolean(intact),verified:m.verified&&Boolean(intact)})}
+  if(!this.states.has('cuda-engine')){
+   const archive=path.join(this.config.getRuntimeDirectory(),'cuda-'+CUDA_ASSET.version+'.zip'),received=await readDownloadProgress({...CUDA_ASSET,id:'cuda-engine'},archive)
+   if(received!==null)this.states.set('cuda-engine',{id:'cuda-engine',state:'paused',received,total:CUDA_ASSET.bytes,message:'发现下载断点，可继续安装'})
+   else if(await fs.stat(archive+'.part').then(s=>s.isFile()).catch(()=>false))this.states.set('cuda-engine',{id:'cuda-engine',state:'paused',received:0,total:CUDA_ASSET.bytes,message:'旧临时文件没有有效断点，重试时将重新校验并下载'})
+  }
   return result
  }
  async resolveModel(id:string){const model=(await this.list()).find(m=>m.id===id);if(!model?.installed||!model.path)throw Error('请先下载或导入所选模型');if(await sha256(model.path)!==model.sha256)throw Error('模型校验失败，请重新下载或导入');return model.path}
@@ -47,7 +52,14 @@ export class ModelStorage {
  }
  async pause(id:string){this.controllers.get(id)?.abort();await this.work.get(id)}
  async resume(id:string){if(id==='cuda-engine')await this.installCuda();else await this.download(id)}
- async cancel(id:string){if(this.mutation||this.closing||this.config.isBusy())throw Error('请先完成媒体或目录操作');const old=this.states.get(id);this.states.set(id,{id,state:'cancelled',received:0,total:old?.total||0});this.controllers.get(id)?.abort();await this.work.get(id);this.beginMutation();try{const m=MODEL_CATALOG.find(x=>x.id===id);if(m){const file=path.join(this.directory(),'ggml-'+id+'.bin.part');await fs.unlink(file).catch(()=>{});await fs.unlink(file+'.json').catch(()=>{});await fs.unlink(file+'.json.tmp').catch(()=>{})}}finally{this.endMutation()}}
+ async cancel(id:string){
+  if(this.mutation||this.closing||this.config.isBusy())throw Error('请先完成媒体或目录操作')
+  const model=MODEL_CATALOG.find(x=>x.id===id);if(!model&&id!=='cuda-engine')throw Error('下载任务不存在')
+  const old=this.states.get(id);this.states.set(id,{id,state:'cancelled',received:0,total:old?.total||0});this.controllers.get(id)?.abort();await this.work.get(id)
+  this.beginMutation()
+  try{const file=id==='cuda-engine'?path.join(this.config.getRuntimeDirectory(),'cuda-'+CUDA_ASSET.version+'.zip.part'):path.join(this.directory(),'ggml-'+id+'.bin.part');for(const suffix of ['', '.json', '.json.tmp'])await fs.unlink(file+suffix).catch(error=>{if(error.code!=='ENOENT')throw error})}
+  finally{this.endMutation()}
+ }
  async importFile(input:string,reference:boolean){
   this.beginMutation()
   try{
@@ -77,14 +89,19 @@ export class ModelStorage {
  }
  async installCuda(){
   this.assertIdle();const id='cuda-engine',controller=new AbortController();this.controllers.set(id,controller)
+  const previous=this.states.get(id);this.states.set(id,{id,state:'downloading',received:previous?.received||0,total:CUDA_ASSET.bytes,message:'正在检查下载缓存与断点'});this.config.onChange()
   const root=this.config.getRuntimeDirectory(),archive=path.join(root,'cuda-'+CUDA_ASSET.version+'.zip'),target=path.join(root,'cuda'),stage=path.join(root,'cuda-stage-'+randomUUID())
   const work=(async()=>{await fs.mkdir(root,{recursive:true});if(await fs.stat(target).then(()=>true).catch(()=>false))throw Error('CUDA 引擎已安装');if(await sha256(archive).catch(()=> '')!==CUDA_ASSET.sha256){await fs.unlink(archive).catch(()=>{});await downloadAsset({...CUDA_ASSET,id},archive,{acceleration:false,segments:4,signal:controller.signal,update:s=>{this.states.set(id,s);this.config.onChange()}})}
-   if(controller.signal.aborted)throw Error('安装已暂停');await fs.mkdir(stage);const zip=new AdmZip(archive);let total=0;for(const e of zip.getEntries()){if(controller.signal.aborted)throw Error('安装已暂停');if(e.isDirectory)continue;const name=path.posix.basename(e.entryName);if(!(/\.dll$/i.test(name)||name==='whisper-cli.exe'||/license|copying/i.test(name)))continue;total+=e.header.size;if(total>2*1024**3)throw Error('CUDA 资产解压大小超限');await fs.writeFile(path.join(stage,name),e.getData(),{flag:'wx'})}
+   if(controller.signal.aborted)throw Error('安装已暂停');this.states.set(id,{id,state:'verifying',received:CUDA_ASSET.bytes,total:CUDA_ASSET.bytes,message:'正在解压安装 CUDA 引擎'});this.config.onChange();await fs.mkdir(stage);const zip=new AdmZip(archive);let total=0;for(const e of zip.getEntries()){if(controller.signal.aborted)throw Error('安装已暂停');if(e.isDirectory)continue;const name=path.posix.basename(e.entryName);if(!(/\.dll$/i.test(name)||name==='whisper-cli.exe'||/license|copying/i.test(name)))continue;total+=e.header.size;if(total>2*1024**3)throw Error('CUDA 资产解压大小超限');await fs.writeFile(path.join(stage,name),e.getData(),{flag:'wx'})}
    for(const name of ['THIRD-PARTY-NOTICES.md','whisper-LICENSE.txt','SDL2-LICENSE.txt'])await fs.copyFile(path.join(mediaBinaryRoot(),'whisper',name),path.join(stage,name))
    await fs.stat(path.join(stage,'whisper-cli.exe'));if(controller.signal.aborted)throw Error('安装已暂停');await fs.rename(stage,target);this.states.set(id,{id,state:'completed',received:CUDA_ASSET.bytes,total:CUDA_ASSET.bytes})})()
-   .catch(error=>{this.states.set(id,{id,state:controller.signal.aborted?'paused':'failed',received:0,total:CUDA_ASSET.bytes,error:error instanceof Error?error.message:'CUDA 安装失败'})})
-   .finally(async()=>{await fs.rm(stage,{recursive:true,force:true});this.controllers.delete(id);this.work.delete(id);this.config.onChange()});this.work.set(id,work);this.config.onChange()
+   .catch(error=>{
+    const old=this.states.get(id);if(old?.state==='cancelled')return
+    const raw=error instanceof Error?error.message:'CUDA 安装失败',timeout=/timeout|timed out|aborted due to timeout/i.test(raw)
+    this.states.set(id,{id,state:controller.signal.aborted?'paused':'failed',received:old?.received||0,total:CUDA_ASSET.bytes,message:controller.signal.aborted?'下载已暂停，可继续安装':old?.message,error:controller.signal.aborted?undefined:timeout?'下载连接长时间无响应，已保留断点，请重试安装':raw})
+   })
+   .finally(async()=>{try{await fs.rm(stage,{recursive:true,force:true})}catch{/* 暂存清理失败不阻塞后续重试或退出。 */}finally{this.controllers.delete(id);this.work.delete(id);this.config.onChange()}});this.work.set(id,work);this.config.onChange()
  }
- async removeCuda(){this.beginMutation();try{await fs.rm(path.join(this.config.getRuntimeDirectory(),'cuda'),{recursive:true,force:true})}finally{this.endMutation()}}
+ async removeCuda(){this.beginMutation();try{await fs.rm(path.join(this.config.getRuntimeDirectory(),'cuda'),{recursive:true,force:true});this.states.delete('cuda-engine')}finally{this.endMutation()}}
  async shutdown(){this.closing=true;for(const controller of this.controllers.values())controller.abort();await Promise.allSettled([...this.work.values(),this.mutationFinished])}
 }

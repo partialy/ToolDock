@@ -13,6 +13,14 @@ export function ModelManagerDialog({open,onOpenChange,snapshot,busy,run,onPrefer
  const dialog=useDialog(),api=window.toolDock.media
  const [directoryTarget,setDirectoryTarget]=useState('')
  const locked=busy||snapshot.busy
+ const cudaDownload=snapshot.downloads.find(download=>download.id==='cuda-engine')
+ const cudaWorking=!!cudaDownload&&['downloading','verifying','completed'].includes(cudaDownload.state)&&!snapshot.engines.cudaAvailable
+ const cudaRecoverable=!!cudaDownload&&['paused','failed'].includes(cudaDownload.state)&&!snapshot.engines.cudaAvailable
+ const cudaStatus=cudaDownload?({downloading:'正在下载',verifying:cudaDownload.message||'正在校验完整性',paused:'下载已暂停',failed:'下载 / 安装失败',cancelled:'下载已取消',completed:snapshot.engines.cudaAvailable?'安装完成':'下载完成，等待安装'} as const)[cudaDownload.state]:''
+ const cancelCuda=async()=>{
+  const yes=await dialog.confirm({title:'取消 CUDA 引擎下载？',description:'将删除本次下载的临时文件和断点进度，下次需要重新下载。暂停下载可以保留进度。',variant:'danger',confirmText:'取消并清除进度'})
+  if(yes)await run(()=>api.models.cancel('cuda-engine'))
+ }
  const remove=async(id:string,name:string)=>{
   const yes=await dialog.confirm({title:'删除模型？',description:'将移除「'+name+'」。外部引用只移除记录，不删除源文件。',variant:'danger',confirmText:'删除模型'})
   if(yes)await run(()=>api.models.remove(id))
@@ -40,8 +48,14 @@ export function ModelManagerDialog({open,onOpenChange,snapshot,busy,run,onPrefer
     })}</div>
    </section>
    <section className="space-y-3 border-t border-[var(--border)] pt-5"><h3 className="text-sm font-semibold">识别引擎</h3><p className="text-xs leading-6 muted">CPU 引擎：{snapshot.engines.cpuAvailable?'已就绪':'不可用'} · CUDA 引擎：{snapshot.engines.cudaAvailable?'已安装':'未安装'}{snapshot.engines.version?' · '+snapshot.engines.version:''}</p>{snapshot.engines.gpuName&&<p className="text-xs muted">检测显卡：{snapshot.engines.gpuName}{snapshot.engines.gpuMemory?' · '+snapshot.engines.gpuMemory:''}</p>}<p className="text-xs leading-5 muted">CUDA 安装状态不代表推理成功，任务会显示实际使用设备。强制 GPU 模式失败时停止；自动模式会提示并回退 CPU。</p>
-    {snapshot.downloads.filter(d=>d.id==='cuda-engine').map(d=><div key={d.id} className="space-y-2"><MediaProgress value={d.total?d.received/d.total*100:0} label="CUDA引擎安装进度"/><p className="text-xs muted">{d.state==='completed'?'安装完成':d.state==='verifying'?'正在校验与安装':mediaBytes(d.received)+' / '+mediaBytes(d.total)}</p>{d.error&&<p className="text-xs text-red-400">{d.error}</p>}</div>)}
-    <div className="flex flex-wrap gap-2"><Button size="sm" disabled={locked||snapshot.engines.cudaAvailable||snapshot.downloads.some(d=>d.id==='cuda-engine'&&['downloading','verifying'].includes(d.state))} onClick={()=>void run(()=>api.engines.installCuda())}><Download size={14}/>安装 CUDA 引擎</Button>{snapshot.engines.cudaAvailable&&<Button size="sm" variant="danger" disabled={locked} onClick={async()=>{if(await dialog.confirm({title:'移除 CUDA 引擎？',description:'移除后仍可使用 CPU 识别字幕。',variant:'danger',confirmText:'移除'}))await run(()=>api.engines.removeCuda())}}><Trash2 size={14}/>移除 CUDA</Button>}</div>
+    {cudaDownload&&<div className="space-y-2 rounded-xl border border-[var(--border)] p-3"><p role="status" className={'text-xs font-medium '+(cudaDownload.state==='failed'?'text-red-400':'muted')}>{cudaStatus}</p><MediaProgress value={cudaDownload.total?cudaDownload.received/cudaDownload.total*100:0} label="CUDA引擎下载进度"/><p className="text-xs muted">已下载 {mediaBytes(cudaDownload.received)}{cudaDownload.total?' / '+mediaBytes(cudaDownload.total):' · 正在获取文件大小'}</p>{cudaDownload.message&&cudaDownload.state!=='verifying'&&<p className="break-words text-xs muted">{cudaDownload.message}</p>}{cudaDownload.error&&<p role="alert" className="break-words text-xs text-red-400">{cudaDownload.error}</p>}{cudaDownload.state==='verifying'&&<p className="text-xs muted">校验与解压安装期间请等待，暂不支持暂停或取消。</p>}</div>}
+    <div className="flex flex-wrap gap-2">
+     {!snapshot.engines.cudaAvailable&&!cudaRecoverable&&<Button size="sm" disabled={locked||cudaWorking} onClick={()=>void run(()=>api.engines.installCuda())}><Download size={14}/>{cudaWorking?'正在安装 CUDA 引擎…':'安装 CUDA 引擎'}</Button>}
+     {cudaDownload?.state==='downloading'&&<Button size="sm" disabled={busy} onClick={()=>void run(()=>api.models.pause('cuda-engine'))}><Pause size={14}/>暂停下载</Button>}
+     {cudaRecoverable&&<Button size="sm" disabled={locked} onClick={()=>void run(()=>api.models.resume('cuda-engine'))}>{cudaDownload?.state==='failed'?<RefreshCw size={14}/>:<Play size={14}/>} {cudaDownload?.state==='failed'?'重试安装':'继续下载'}</Button>}
+     {cudaDownload&&['downloading','paused','failed'].includes(cudaDownload.state)&&!snapshot.engines.cudaAvailable&&<Button size="sm" variant="danger" disabled={busy} onClick={()=>void cancelCuda()}><X size={14}/>取消下载</Button>}
+     {snapshot.engines.cudaAvailable&&<Button size="sm" variant="danger" disabled={locked} onClick={async()=>{if(await dialog.confirm({title:'移除 CUDA 引擎？',description:'移除后仍可使用 CPU 识别字幕。',variant:'danger',confirmText:'移除'}))await run(()=>api.engines.removeCuda())}}><Trash2 size={14}/>移除 CUDA</Button>}
+    </div>
    </section>
    <section className="space-y-3 border-t border-[var(--border)] pt-5"><h3 className="text-sm font-semibold">FFmpeg</h3><p className="break-all text-xs muted">{snapshot.preferences.ffmpegOverride||'使用内置 FFmpeg（开发版使用已下载的媒体资源）'}</p><div className="flex flex-wrap gap-2"><Button size="sm" disabled={locked} onClick={()=>void run(async()=>{await api.chooseFfmpeg()})}><FolderOpen size={14}/>指定 FFmpeg</Button>{snapshot.preferences.ffmpegOverride&&<Button size="sm" disabled={locked} onClick={()=>onPreferences({ffmpegOverride:''})}><RefreshCw size={14}/>恢复默认</Button>}</div></section>
   </div>
