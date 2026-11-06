@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, screen, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, screen, shell } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
@@ -26,6 +26,8 @@ import {registerTextConversionIpc} from './services/text-conversion/ipc'
 
 const devMode=!app.isPackaged
 app.setName(devMode?'ToolDock-Dev':'ToolDock')
+// 必须在创建窗口之前设置 Windows 任务栏分组身份；开发版与正式版隔离。
+if(process.platform==='win32')app.setAppUserModelId(devMode?'cn.partial.tooldock.dev':'cn.partial.tooldock')
 // Explicit test-only override: APPDATA alone is not sufficient for Electron app.getPath('appData').
 if(devMode&&process.env.TOOLDOCK_E2E_APPDATA){const isolated=path.resolve(process.env.TOOLDOCK_E2E_APPDATA);fs.mkdirSync(isolated,{recursive:true});app.setPath('appData',isolated)}
 const base=path.join(app.getPath('appData'),devMode?'ToolDock-Dev':'ToolDock')
@@ -201,11 +203,15 @@ function createWindow(){
   const display=screen.getAllDisplays().find(d=>saved.x! >= d.workArea.x-100 && saved.y! >= d.workArea.y-100 && saved.x! < d.workArea.x+d.workArea.width-100 && saved.y! < d.workArea.y+d.workArea.height-100)
   if(display){bounds.x=saved.x;bounds.y=saved.y}
  }
+ const windowIcon=nativeImage.createFromPath(appIconPath())
+ if(windowIcon.isEmpty())throw Error('ToolDock 窗口图标加载失败')
  win=new BrowserWindow({
-  ...bounds,minWidth:880,minHeight:560,show:false,frame:false,autoHideMenuBar:true,backgroundColor:'#15171d',icon:appIconPath(),
+  ...bounds,minWidth:880,minHeight:560,show:false,frame:false,autoHideMenuBar:true,backgroundColor:'#15171d',icon:windowIcon,
   webPreferences:{preload:path.join(__dirname,'../preload/index.js'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}
  })
  const w=win
+ // Windows 无边框窗口仍显式设置小/大任务栏图标，避免使用默认 Electron 图标。
+ if(process.platform==='win32')w.setIcon(windowIcon)
  const save=()=>{if(w.isDestroyed())return;const b=w.getNormalBounds();fs.writeFileSync(stateFile,JSON.stringify({...b,maximized:w.isMaximized()}))}
  w.on('resize',()=>{if(!w.isMaximized())save()})
  w.on('move',()=>{if(!w.isMaximized())save()})
@@ -227,7 +233,7 @@ function createWindow(){
 }
 app.whenReady().then(async()=>{
  if(!primaryInstance)return
- try{app.setAppUserModelId('cn.partial.tooldock');initStore();initMarker();initLog();await quickLaunch.initialize();await media.initialize();await textConversion.initialize();void fileTransfer.cleanupAbandoned();recordEvent('app-start');channels();createWindow();tray=createAppTray(showMainWindow,openPinnedTool,getPinnedTools(true));const prefs=getSettings().fileTransferPrefs;fileTransfer.setPrefs(prefs);if(win)fileTransfer.setWindow(win);fileTransfer.on('change',()=>{}); }
+ try{initStore();initMarker();initLog();await quickLaunch.initialize();await media.initialize();await textConversion.initialize();void fileTransfer.cleanupAbandoned();recordEvent('app-start');channels();createWindow();tray=createAppTray(showMainWindow,openPinnedTool,getPinnedTools(true));const prefs=getSettings().fileTransferPrefs;fileTransfer.setPrefs(prefs);if(win)fileTransfer.setWindow(win);fileTransfer.on('change',()=>{}); }
  catch(e){dialog.showErrorBox('ToolDock 初始化失败',e instanceof Error?e.stack||e.message:String(e));app.quit()}
 })
 app.on('window-all-closed',()=>{if(!tray||tray.isDestroyed())app.quit()})

@@ -22,6 +22,8 @@ npmRebuild: true
 asarUnpack:
   - "**/*.node"
 win:
+  # 必须修改 EXE 资源中的图标，不能仅依赖窗口运行时 icon。
+  signAndEditExecutable: true
   icon: src/assets/tooldock-icon.ico
   target:
     - nsis
