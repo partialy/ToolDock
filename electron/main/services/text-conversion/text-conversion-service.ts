@@ -2,7 +2,7 @@ import {app,dialog,type BrowserWindow} from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
-import {randomUUID} from 'node:crypto'
+import {randomUUID,createHash} from 'node:crypto'
 import {Worker} from 'node:worker_threads'
 import {createWriteStream} from 'node:fs'
 import {pipeline} from 'node:stream/promises'
@@ -15,7 +15,6 @@ import {outputSuffix} from '../../../../src/lib/text-conversion/conversion-core'
 
 type RecordTask=ConversionTask & {ino:number;resultPath?:string;resultPrefs?:ConversionPreferences;queuedPrefs?:ConversionPreferences;worker?:Worker}
 const key='textConversionPreferences'
-const root=path.join(os.tmpdir(),app.isPackaged?'tooldock-text-conversion':'tooldock-text-conversion-dev')
 const marker='tooldock-text-conversion-v1'
 const errorText=(e:unknown)=>e instanceof Error?e.message:String(e)
 export class TextConversionService {
@@ -30,6 +29,8 @@ export class TextConversionService {
  private lastChanged=0
  constructor(private window:()=>BrowserWindow|null){}
  async initialize(){
+  const scope=createHash('sha256').update(app.getPath('userData').toLowerCase()).digest('hex').slice(0,16)
+  const root=path.join(os.tmpdir(),(app.isPackaged?'tooldock-text-conversion-':'tooldock-text-conversion-dev-')+scope)
   const row=getDb().prepare('SELECT value_json FROM settings WHERE key=?').get(key)
   if(row)try{this.preferences=conversionPreferencesSchema.parse(JSON.parse(String(row.value_json)))}catch{}
   await fs.mkdir(root,{recursive:true})
