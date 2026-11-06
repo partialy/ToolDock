@@ -1,9 +1,11 @@
 import type { Category, Tool, Settings, DataInfo, CryptoResult } from './models'
 import type {QuickLaunchAPI} from '../shared/quickLaunchModels'
+import type {MediaAPI} from '../shared/mediaModels'
 import type {PipelineInput,PipelineSaved,PipelineSummary} from '../shared/codecModels'
 import type {KillInput,JunctionInput,JunctionPreview,JunctionResult,PortQueryResult,TerminateResult} from '../shared/commandModels'
 import type {TransferPreferences,TransferSnapshot,SharedFile,LanInterface,ShareHistory,DirectoryPage,DirectoryStats,AddSourcesResult} from '../shared/fileTransferModels'
 export interface ToolDockAPI {
+  media:MediaAPI
   quickLaunch:QuickLaunchAPI
   commands:{queryPort(port:number):Promise<PortQueryResult>;terminate(input:KillInput):Promise<TerminateResult>;chooseDirectory():Promise<string|null>;validateJunction(input:JunctionInput):Promise<JunctionPreview>;createJunction(input:JunctionInput):Promise<JunctionResult>;openFolder(path:string):Promise<void>}
   codecPipelines:{list():Promise<PipelineSummary[]>;get(id:string):Promise<PipelineSaved>;create(data:PipelineInput):Promise<PipelineSaved>;update(id:string,expectedRevision:number,data:PipelineInput):Promise<PipelineSaved>;duplicate(id:string,newName?:string):Promise<PipelineSaved>;remove(id:string,expectedRevision?:number):Promise<void>}

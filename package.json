@@ -1,6 +1,6 @@
 {
   "name": "tooldock",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Desktop toolbox and utility workspace",
   "productName": "ToolDock",
   "main": "./out/main/index.js",
@@ -12,8 +12,9 @@
     "test": "vitest run",
     "preview": "electron-vite preview",
     "build:runner": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-quick-launch-runner.ps1",
-    "dist": "npm run build:runner && npm run build && electron-builder --win nsis",
-    "rebuild": "electron-builder install-app-deps"
+    "dist": "npm run fetch:media && npm run build:runner && npm run build && electron-builder --win nsis",
+    "rebuild": "electron-builder install-app-deps",
+    "fetch:media": "node scripts/fetch-media-binaries.cjs"
   },
   "dependencies": {
     "@codemirror/lang-json": "^6.0.2",

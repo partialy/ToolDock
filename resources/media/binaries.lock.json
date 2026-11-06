@@ -1,0 +1,32 @@
+{
+  "whisper": {
+    "version": "v1.8.3",
+    "url": "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.3/whisper-bin-x64.zip",
+    "bytes": 3968674,
+    "sha256": "d824b1e37599f882b396e73f1ee0bfd5d0529f700314c48311dcbd00b803321d"
+  },
+  "cuda": {
+    "version": "v1.8.3",
+    "url": "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.3/whisper-cublas-12.4.0-bin-x64.zip",
+    "bytes": 459854042,
+    "sha256": "c12a563333d3c3707be70754dc0e87c1cb58aa6333a87055bbcf9b524488dfb0"
+  },
+  "ffmpeg": {
+    "version": "n8.1.3-34-ga35157abb9",
+    "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-11-05-12-48/ffmpeg-n8.1.3-34-ga35157abb9-win64-lgpl-8.1.zip",
+    "bytes": 167957377,
+    "sha256": "aeea3020a16e8d37aeac67df9ce3cdbf93b79f5ea96eddd26f4a79ba8154cc86",
+    "sources": [
+      {
+        "name": "ffmpeg-source.tar.gz",
+        "url": "https://codeload.github.com/FFmpeg/FFmpeg/tar.gz/a35157abb96167fd7308edc92b55408d5bb084b0",
+        "sha256": "0dd30eb8eca5370dc2dad5f9958d9d7221fa4e8a1d407fd06fbc305c15c9314e"
+      },
+      {
+        "name": "build-scripts.tar.gz",
+        "url": "https://codeload.github.com/BtbN/FFmpeg-Builds/tar.gz/c63bb308a1de656b425c132a8102f8fd5389afc5",
+        "sha256": "25c696a59e116d501df70858f57c037f9ff5a2ebb3156bc36d598e6ad720b71a"
+      }
+    ]
+  }
+}

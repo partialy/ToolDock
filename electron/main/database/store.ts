@@ -9,6 +9,7 @@ import { migrateCodecPipelines } from './migrations/008-add-codec-pipelines'
 import { migrateCommandTool } from './migrations/009-add-command-tool'
 import { migrateQuickLaunch } from './migrations/010-add-quick-launch'
 import {migrateFileTransferHistory} from './migrations/011-add-file-transfer-history'
+import {migrateVideoProcessing} from './migrations/012-add-video-processing'
 import {TRANSFER_DEFAULTS} from '../../../src/shared/fileTransferModels'
 import { builtinById, builtinByTarget } from '../../../src/shared/builtinToolRegistry'
 import { app } from 'electron'
@@ -63,6 +64,7 @@ export function initStore() {
   migrateCommandTool(db)
   migrateQuickLaunch(db)
   migrateFileTransferHistory(db)
+  migrateVideoProcessing(db)
 
 }
 export function closeStore() { if(db?.open) { db.pragma('wal_checkpoint(TRUNCATE)'); db.close() } }

@@ -1,4 +1,5 @@
 export const BUILTIN_TOOLS = [
+  { id:'builtin-video-processing', target:'video-processing', name:'视频处理', icon:'film', defaultCategoryId:'media' },
   { id:'builtin-key-generator', target:'key-generator', name:'密钥生成器', icon:'key-round', defaultCategoryId:'developer' },
   { id:'builtin-json-tool', target:'json-tool', name:'JSON 处理', icon:'braces', defaultCategoryId:'developer' },
   { id:'builtin-text-diff', target:'text-diff', name:'文本 / JSON 差异对比', icon:'git-compare-arrows', defaultCategoryId:'developer' },

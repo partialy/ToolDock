@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import {writeFile,mkdir,readFile} from 'node:fs/promises'
+import {ModelStorage} from '../electron/main/services/media/model-storage'
+import {defaultMediaPreferences} from '../src/shared/mediaModels'
 
 vi.mock('electron', () => ({
   app: { getPath: () => process.env.TOOLDOCK_TEST_USERDATA ?? '' }
@@ -25,14 +28,36 @@ afterEach(() => {
 })
 
 describe('分类与 SQLite 持久化', () => {
+  it('模型引用元信息写入备份数据库，移除引用不删除源文件',async()=>{
+    const file=path.join(workdir,'custom.bin');await writeFile(file,Buffer.alloc(2048,7))
+    const directory=path.join(workdir,'models');await mkdir(directory)
+    const models=new ModelStorage({getPreferences:()=>({...defaultMediaPreferences,modelDirectory:directory}),setDirectory:()=>{},getRuntimeDirectory:()=>path.join(workdir,'runtime'),isBusy:()=>false,onChange:()=>{}})
+    await models.importFile(file,true)
+    const row=getDb().prepare("SELECT value_json FROM settings WHERE key='mediaImportedModels'").get()
+    expect(JSON.parse(String(row?.value_json))).toMatchObject([{path:file,reference:true,verified:false}])
+    const imported=(await models.list()).find(m=>m.reference)!
+    expect(imported.installed).toBe(true)
+    await models.remove(imported.id)
+    expect((await readFile(file)).length).toBe(2048)
+    expect((await models.list()).some(m=>m.reference)).toBe(false)
+  })
+  it('视频处理 v12 只迁移一次，保留用户分类删除与工具配置',()=>{
+    expect(getDb().prepare('SELECT 1 FROM schema_migrations WHERE version=12').get()).toBeTruthy()
+    saveTool({id:'builtin-video-processing',name:'我的视频',categoryId:'default',type:'internal',target:'video-processing',visible:false})
+    removeCategory('media')
+    closeStore();initStore()
+    expect(listCategories().some(c=>c.id==='media')).toBe(false)
+    expect(listTools().find(t=>t.id==='builtin-video-processing')).toMatchObject({name:'我的视频',categoryId:'default',visible:false})
+    expect(getDb().prepare('SELECT COUNT(*) AS n FROM media_tasks').get()?.n).toBe(0)
+  })
   it('首次启动有预置工具，删除非空分类后迁移到默认分类且重启不复活', () => {
-    expect(listCategories().map(c => c.id)).toEqual(['default', 'developer', 'images', 'files'])
+    expect(listCategories().map(c => c.id)).toEqual(['default', 'developer', 'images', 'files', 'media'])
     expect(listTools().find(t => t.id === 'builtin-key-generator')?.categoryId).toBe('developer')
     removeCategory('developer')
     expect(listTools().find(t => t.id === 'builtin-key-generator')?.categoryId).toBe('default')
     closeStore()
     initStore()
-    expect(listCategories().map(c => c.id)).toEqual(['default', 'images', 'files'])
+    expect(listCategories().map(c => c.id)).toEqual(['default', 'images', 'files', 'media'])
     expect(listTools().find(t => t.id === 'builtin-key-generator')?.categoryId).toBe('default')
   })
   it('默认分类允许改名和隐藏，但禁止删除', () => {
@@ -58,7 +83,7 @@ describe('分类与 SQLite 持久化', () => {
 
 describe('SQLite v2 JSON 内置工具增量升级', () => {
  it('全新安装注册全部不可删除的内置工具',()=>{
-  expect(listTools().filter(x=>x.isBuiltin).map(x=>x.id).sort()).toEqual(['builtin-codec-tool','builtin-command-tool','builtin-file-transfer','builtin-image-encoding','builtin-image-processor','builtin-json-tool','builtin-key-generator','builtin-logo-icon-generator','builtin-qr-code-tool','builtin-text-diff','builtin-time-converter','builtin-uuid-generator'])
+  expect(listTools().filter(x=>x.isBuiltin).map(x=>x.id).sort()).toEqual(['builtin-codec-tool','builtin-command-tool','builtin-file-transfer','builtin-image-encoding','builtin-image-processor','builtin-json-tool','builtin-key-generator','builtin-logo-icon-generator','builtin-qr-code-tool','builtin-text-diff','builtin-time-converter','builtin-uuid-generator','builtin-video-processing'])
   expect(()=>removeTool('builtin-json-tool')).toThrow('内置工具')
  })
  it('模拟 v1 升级时保留重命名且隐藏的 developer 分类',()=>{
@@ -74,7 +99,7 @@ describe('SQLite v2 JSON 内置工具增量升级', () => {
   getDb().prepare("DELETE FROM tools WHERE id='builtin-json-tool'").run()
   getDb().prepare('DELETE FROM schema_migrations WHERE version=2').run()
   closeStore();initStore()
-  expect(listCategories().map(x=>x.id)).toEqual(['default','images','files'])
+  expect(listCategories().map(x=>x.id)).toEqual(['default','images','files','media'])
   expect(listTools().find(x=>x.id==='builtin-json-tool')).toMatchObject({categoryId:'default',isBuiltin:true})
   closeStore();initStore()
   expect(listTools().filter(x=>x.id==='builtin-json-tool')).toHaveLength(1)

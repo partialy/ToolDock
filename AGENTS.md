@@ -44,3 +44,8 @@
 - v1.0.0 品牌资源在 src/assets：WebP 供应用内展示，含 16–256px 图层的 ICO 供窗口、任务栏、托盘、安装与卸载程序使用；运行时 ICO 通过 extraResources 打包。Windows AppUserModelID 与打包 appId 保持 cn.partial.tooldock。
 - 系统托盘由 electron/main/services/app-tray.ts 管理，仅提供「显示主界面」「退出」。关闭主窗口隐藏到托盘并保留页面及运行任务；点击托盘恢复窗口，退出/重启沿用文件快传与快捷启动的清理流程，重复退出不能跳过异步清理。
 - Windows 使用 NSIS 向导安装（oneClick=false、allowToChangeInstallationDirectory=true），允许手动选择安装路径，创建桌面与开始菜单快捷方式。安装目录与用户数据目录相互独立。
+
+- 视频处理固定 ID `builtin-video-processing`、路由 `video-processing`、分类 `media`；SQLite v12 增量迁移仅首次注册，不覆盖用户分类/工具配置。`src/shared/mediaModels.ts` 是受限 `media:*` IPC 契约，主进程 `services/media` 管理扫描、队列、模型与引擎，任务不依赖页面生命周期。
+- 媒体始终本地处理，提取并发2、字幕串行1；只允许白名单参数构造 `shell:false` 子进程。输出暂存后原子提交，禁止覆盖源文件和既有目标；正式退出取消受控进程，异常恢复标中断，不自动重跑。SQLite 只留最近100条终态元信息，不存媒体正文。
+- FFmpeg/ffprobe 使用锁定 GitHub BtbN LGPL 资产、CPU Whisper 随包、CUDA 同版本官方资产按需安装，均验证SHA-256；资源在 `resources/media/bin`（忽略提交），锁文件和获取脚本提交。禁止复制本机GPL FFmpeg。设备显示依据实际引擎初始化，强制GPU失败不降级，自动模式失败明确回退CPU。
+- Whisper 模型按需获取、支持离线导入与引用；下载加速默认关闭，仅代理模型请求，失败回退直连。Range/Content-Range/版本/长度/哈希必须验证，暂存未完成文件不能作为模型。模型、CUDA与媒体缓存排除普通备份，目录迁移与媒体/下载/数据恢复互斥；详见 `docs/video-processing.md`。

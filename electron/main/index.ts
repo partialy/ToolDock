@@ -18,6 +18,8 @@ import {listShareHistory,removeShareHistory,clearShareHistory,getShareHistory} f
 import {QuickLaunchService} from './services/quick-launch'
 import {quickLaunchSaveSchema} from '../../src/shared/quickLaunchModels'
 import {appIconPath,createAppTray} from './services/app-tray'
+import {MediaService} from './services/media/media-service'
+import {registerMediaIpc} from './services/media/ipc'
 
 const devMode=!app.isPackaged
 app.setName(devMode?'ToolDock-Dev':'ToolDock')
@@ -40,7 +42,8 @@ const primaryInstance=app.requestSingleInstanceLock()
 if(!primaryInstance)app.quit()
 app.on('second-instance',showMainWindow)
 const quickLaunch=new QuickLaunchService(()=>win)
-const isMain=(event:Electron.IpcMainInvokeEvent)=>!!win&&!win.isDestroyed()&&event.sender===win.webContents
+const media=new MediaService(()=>win)
+const isMain=(event:Electron.IpcMainInvokeEvent)=>!!win&&!win.isDestroyed()&&event.sender===win.webContents&&event.senderFrame===win.webContents.mainFrame
 function register<T>(channel:string,fn:(arg:T)=>unknown|Promise<unknown>){ipcMain.handle(channel,async(e,arg:T)=>{if(!isMain(e))throw Error('不可信的 IPC 来源');try{return await fn(arg)}catch(e){recordEvent('ipc-failed:'+channel,'error');throw e}})}
 const text=z.string().min(1).max(500)
 const categoryInput=z.object({id:z.string().optional(),name:z.string().min(1).max(60),icon:z.string().max(80).optional(),visible:z.boolean().optional()})
@@ -48,6 +51,7 @@ const toolInput=z.object({id:z.string().optional(),name:z.string().min(1).max(80
 const order=z.array(z.string()).max(10000)
 const dimensions=z.object({x:z.number().finite(),y:z.number().finite(),width:z.number().finite().min(0).max(10000),height:z.number().finite().min(0).max(10000)})
 function channels(){
+ registerMediaIpc(register,media,()=>win)
  const appVersion=z.strictObject({id:z.uuid(),revision:z.number().int().positive()})
  register('quickLaunch:list',()=>quickLaunch.list())
  register('quickLaunch:tasks',()=>quickLaunch.tasks())
@@ -140,11 +144,11 @@ function channels(){
  register('views:clearData',(id:unknown)=>clearWebData(win!,text.parse(id)))
  register('data:info',()=>getDataInfo())
  register('data:choose',()=>chooseDataFolder(win!))
- register('data:migrate',(a:unknown)=>quickLaunch.dataMutation(()=>{if(fileTransfer.getSnapshot().running)throw Error('请先停止文件快传服务再迁移数据目录');return migrateData(win!,z.string().min(3).max(1024).parse(a))}))
- register('data:deleteOld',(a:unknown)=>quickLaunch.dataMutation(()=>deleteOldData(text.parse(a))))
+ register('data:migrate',(a:unknown)=>media.dataMutation(()=>quickLaunch.dataMutation(()=>{if(fileTransfer.getSnapshot().running)throw Error('请先停止文件快传服务再迁移数据目录');return migrateData(win!,z.string().min(3).max(1024).parse(a))})))
+ register('data:deleteOld',(a:unknown)=>media.dataMutation(()=>quickLaunch.dataMutation(()=>deleteOldData(text.parse(a)))))
  register('data:openFolder',()=>openDataFolder())
- register('data:backup',()=>quickLaunch.backup(()=>backupData(win!)))
- register('data:restore',()=>quickLaunch.dataMutation(()=>{if(fileTransfer.getSnapshot().running)throw Error('请先停止文件快传服务并处理待接收文件，再恢复数据备份');return restoreData(win!)}))
+ register('data:backup',()=>media.dataMutation(()=>quickLaunch.backup(()=>backupData(win!))))
+ register('data:restore',()=>media.dataMutation(()=>quickLaunch.dataMutation(()=>{if(fileTransfer.getSnapshot().running)throw Error('请先停止文件快传服务并处理待接收文件，再恢复数据备份');return restoreData(win!)})))
  register('data:exportLogs',()=>exportLogs(win!))
  register('data:clearLogs',()=>clearLogs())
  register('data:restart',()=>{app.relaunch();app.quit()})
@@ -190,7 +194,7 @@ function createWindow(){
 }
 app.whenReady().then(async()=>{
  if(!primaryInstance)return
- try{app.setAppUserModelId('cn.partial.tooldock');initStore();initMarker();initLog();await quickLaunch.initialize();void fileTransfer.cleanupAbandoned();recordEvent('app-start');channels();createWindow();tray=createAppTray(showMainWindow);const prefs=getSettings().fileTransferPrefs;fileTransfer.setPrefs(prefs);if(win)fileTransfer.setWindow(win);fileTransfer.on('change',()=>{}); }
+ try{app.setAppUserModelId('cn.partial.tooldock');initStore();initMarker();initLog();await quickLaunch.initialize();await media.initialize();void fileTransfer.cleanupAbandoned();recordEvent('app-start');channels();createWindow();tray=createAppTray(showMainWindow);const prefs=getSettings().fileTransferPrefs;fileTransfer.setPrefs(prefs);if(win)fileTransfer.setWindow(win);fileTransfer.on('change',()=>{}); }
  catch(e){dialog.showErrorBox('ToolDock 初始化失败',e instanceof Error?e.stack||e.message:String(e));app.quit()}
 })
 app.on('window-all-closed',()=>{if(!tray||tray.isDestroyed())app.quit()})
@@ -200,7 +204,7 @@ app.on('before-quit',e=>{
  if(closing)return
  closing=true
  const stopTasks=(()=>{try{return getSettings().quickLaunchStopOnExit}catch{return false}})()
- void Promise.allSettled([fileTransfer.stop(),quickLaunch.shutdown(stopTasks)]).finally(()=>{
+ void Promise.allSettled([fileTransfer.stop(),quickLaunch.shutdown(stopTasks),media.shutdown()]).finally(()=>{
   try{disposeAllExports();closeStore()}catch{}
   tray?.destroy();tray=null;shutdownComplete=true;app.quit()
  })

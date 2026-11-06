@@ -26,6 +26,7 @@ import { LogoIconGeneratorPage } from '@/pages/LogoIconGeneratorPage'
 import { ImageEncodingPage } from '@/pages/ImageEncodingPage'
 import { QrCodeToolPage } from '@/pages/QrCodeToolPage'
 import { FileTransferPage } from '@/pages/FileTransferPage'
+import { VideoProcessingPage } from '@/pages/VideoProcessingPage'
 import {NotificationProvider} from '@/components/notifications/NotificationProvider'
 import { TimeConverterPage } from '@/pages/TimeConverterPage'
 import { UuidGeneratorPage } from '@/pages/UuidGeneratorPage'
@@ -94,6 +95,7 @@ export default function App(){
   if(tool?.type==='link')return <WebTool key={tool.id} toolId={tool.id}/>
   if(tool?.type==='internal'&&builtinByTarget(tool.target)){
    const pages:Record<string,React.ReactNode>={'key-generator':<KeyGeneratorPage key={tool.id}/>,'json-tool':<JsonToolPage key={tool.id}/>,'text-diff':<TextDiffPage key={tool.id}/>,'codec-tool':<CodecToolPage key={tool.id}/>,'command-tool':<CommandToolPage key={tool.id}/>,'image-processor':<ImageProcessorPage key={tool.id}/>,'logo-icon-generator':<LogoIconGeneratorPage key={tool.id}/>,'image-encoding':<ImageEncodingPage key={tool.id}/>,'qr-code-tool':<QrCodeToolPage key={tool.id}/>,'file-transfer':<FileTransferPage key={tool.id}/>,'time-converter':<TimeConverterPage key={tool.id}/>,'uuid-generator':<UuidGeneratorPage key={tool.id}/>}
+   if(tool.target==='video-processing')return <VideoProcessingPage key={tool.id}/>
    return pages[tool.target]
   }
   return <div className="p-10 muted">页面不存在或工具已删除。请从侧栏选择工具。</div>

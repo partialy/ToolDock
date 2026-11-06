@@ -1,6 +1,14 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 const invoke=(channel:string,payload?:unknown)=>ipcRenderer.invoke(channel,payload)
 const api={
+ media:{
+  status:()=>invoke('media:status'),chooseFiles:(kind:string)=>invoke('media:chooseFiles',kind),chooseFolder:()=>invoke('media:chooseFolder'),addSources:(paths:string[],kind:string)=>invoke('media:addSources',{paths,kind}),
+  start:(ids:string[],preferences:unknown)=>invoke('media:start',{ids,preferences}),cancel:(id:string)=>invoke('media:cancel',id),retry:(id:string)=>invoke('media:retry',id),clearFinished:()=>invoke('media:clearFinished'),setAudioTrack:(id:string,index:number)=>invoke('media:setAudioTrack',{id,index}),
+  chooseOutputDirectory:()=>invoke('media:chooseOutputDirectory'),openOutput:(id:string)=>invoke('media:openOutput',id),preview:(id:string)=>invoke('media:preview',id),exportSubtitle:(id:string)=>invoke('media:exportSubtitle',id),setPreferences:(patch:unknown)=>invoke('media:setPreferences',patch),chooseFfmpeg:()=>invoke('media:chooseFfmpeg'),
+  models:{download:(id:string)=>invoke('media:models:download',id),pause:(id:string)=>invoke('media:models:pause',id),resume:(id:string)=>invoke('media:models:resume',id),cancel:(id:string)=>invoke('media:models:cancel',id),import:(reference:boolean)=>invoke('media:models:import',reference),remove:(id:string)=>invoke('media:models:remove',id),chooseDirectory:()=>invoke('media:models:chooseDirectory'),migrateDirectory:(path:string,move:boolean)=>invoke('media:models:migrateDirectory',{path,move})},
+  engines:{installCuda:()=>invoke('media:engines:installCuda'),removeCuda:()=>invoke('media:engines:removeCuda')},
+  onChange:(cb:()=>void)=>{const fn=()=>cb();ipcRenderer.on('media:changed',fn);return()=>ipcRenderer.off('media:changed',fn)}
+ },
  quickLaunch:{
   list:()=>invoke('quickLaunch:list'),tasks:()=>invoke('quickLaunch:tasks'),save:(input:unknown)=>invoke('quickLaunch:save',input),
   setVisible:(id:string,revision:number,visible:boolean)=>invoke('quickLaunch:setVisible',{id,revision,visible}),remove:(id:string,revision:number)=>invoke('quickLaunch:remove',{id,revision}),
