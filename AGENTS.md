@@ -53,3 +53,7 @@
 - 媒体偏好更新使用无默认值的 `mediaPreferencesPatchSchema`；禁止对含 `default()` 的完整 schema 直接 `.partial()` 解析补丁，防止 Zod 4 注入未提交字段、覆盖偏好或误触目录限制。
 - 普通操作反馈统一使用 `src/components/ui/message.tsx` 的 `msg.success/error/warning/info/loading`，由 App 挂载 `MsgViewport` 顶部展示；尾部支持复制完整详情及关闭，遵循主题和动效偏好。错误展示去除 Electron IPC 外壳，复制保留诊断详情。不得新增页面内临时成功/错误条；输入验证、编辑器定位、任务历史诊断保留所属业务区域。文件快传等带操作的提醒仍由 NotificationProvider 管理。
 - 数据目录迁移由 `services/data-migration.ts` 先在目标同父独立暂存目录复制、校验，再排他提交；预建目标目录本身和用户并发写入内容必须保留。失败只清理身份核验后的自有暂存目录，严禁递归删除用户选择的目标；启动定位/新数据库失败时恢复原目录，清理异常不得遮蔽提交结果。
+
+
+- 视频处理第三个 Tab「简繁转换」采用独立 textConversion:* IPC、TextConversionService 与 Node Worker，不扩充 MediaKind，不污染媒体任务 SQLite。TXT/MD/SRT/VTT/LRC 仅做本地转换，保留字幕时间戳、歌词标签及 Markdown 代码/链接目标；opencc-js 转换方向/地区与编码处理须覆盖回归测试。
+- 简繁文件任务默认 100 项、500 MiB 总量、单文件 50 MiB、最多并发 2；文本及文件正文不记录到日志/SQLite/备份。文件结果暂存于专属受控会话目录，退出严格校验并清理；数据目录迁移与活动转换互斥。导出必须排他不覆盖原始或已有文件，ZIP 使用 yazl 流式写入。每行仅有一个三点操作按钮（菜单中为图标+文案）。
