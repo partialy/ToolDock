@@ -1,5 +1,5 @@
 import {msg} from '@/components/ui/message'
-import {useEffect,useMemo,useState} from 'react'
+import {useEffect,useMemo,useRef,useState} from 'react'
 import {ChevronDown,Library,Plus,RefreshCw,Search,Zap} from 'lucide-react'
 import {Button} from '@/components/ui/button'
 import {Input} from '@/components/ui/input'
@@ -12,12 +12,20 @@ import {QuickLaunchLibraryDialog} from '@/components/quick-launch/QuickLaunchLib
 import {QuickLaunchGroupDialog} from '@/components/quick-launch/QuickLaunchGroupDialog'
 import {QuickLaunchRunDrawer} from '@/components/quick-launch/QuickLaunchRunDrawer'
 import type {CardAction} from '@/components/quick-launch/QuickLaunchCard'
+import type {DashboardFocus} from '@/shared/dashboardModels'
 import {isQuickLaunchLocked,type QuickLaunchApp,type QuickLaunchSave,type QuickLaunchTask} from '@/shared/quickLaunchModels'
 
-export function QuickLaunchPage({trigger}:{trigger:'single'|'double'}){
+export function QuickLaunchPage({trigger,focus}:{trigger:'single'|'double';focus?:DashboardFocus|null}){
  const q=useQuickLaunch(),dialog=useDialog()
  const [search,setSearch]=useState(''),[group,setGroup]=useState('all'),[shell,setShell]=useState('all'),[status,setStatus]=useState('all'),[folded,setFolded]=useState<string[]>([])
  const [editor,setEditor]=useState<{app:QuickLaunchApp|null}|null>(null),[library,setLibrary]=useState(false),[groupsOpen,setGroupsOpen]=useState(false),[taskId,setTaskId]=useState<string|null>(null)
+ const focusOpened=useRef(0)
+ useEffect(()=>{
+  if(!focus||q.loading||focusOpened.current===focus.seq)return
+  focusOpened.current=focus.seq
+  if(!q.tasks.some(t=>t.id===focus.taskId)){msg.info('快捷启动任务已清理，已打开快捷启动');return}
+  setTaskId(focus.taskId)
+ },[focus,q.loading,q.tasks])
  useEffect(()=>{if(!q.loading&&group!=='all'&&!q.groups.some(g=>g.id===group))setGroup('all')},[q.loading,q.groups,group])
  const orphanedTasks=q.tasks.filter(task=>task.status==='unknown'&&!q.apps.some(app=>app.id===task.appId))
  const tasks=useMemo(()=>{const result=new Map<string,QuickLaunchTask>();for(const task of [...q.tasks].sort((a,b)=>a.startedAt.localeCompare(b.startedAt))){const previous=result.get(task.appId);if(!previous||!isQuickLaunchLocked(previous)||isQuickLaunchLocked(task))result.set(task.appId,task)}return result},[q.tasks])

@@ -11,8 +11,9 @@ import {MediaQueue} from '@/components/media/MediaQueue'
 import {ModelManagerDialog} from '@/components/media/ModelManagerDialog'
 import {TextConversionWorkspace} from '@/components/media/TextConversionWorkspace'
 import type {MediaKind,MediaPreferences,MediaSnapshot} from '@/shared/mediaModels'
+import type {DashboardFocus} from '@/shared/dashboardModels'
 
-export function VideoProcessingPage(){
+export function VideoProcessingPage({focus}:{focus?:DashboardFocus|null}){
  const [snapshot,setSnapshot]=useState<MediaSnapshot|null>(null)
  const [kind,setKind]=useState<MediaKind>('extract')
  const [mode,setMode]=useState<MediaKind|'conversion'>('extract')
@@ -60,6 +61,21 @@ export function VideoProcessingPage(){
  })
  const changePrefs=(patch:Partial<MediaPreferences>)=>void run(()=>api.setPreferences(patch))
  const switchKind=(next:MediaKind|'conversion')=>{setMode(next);if(next==='conversion')return;setKind(next);setChecked(snapshot?.tasks.filter(t=>t.kind===next&&t.state==='ready').map(t=>t.id)||[]);setSkipped([])}
+ const focusHandled=useRef(0)
+ const located=useRef(0)
+ useEffect(()=>{
+  if(!focus||focus.seq===focusHandled.current)return
+  focusHandled.current=focus.seq
+  if(focus.tab==='models'){setMode('subtitle');setKind('subtitle');setManagerOpen(true)}
+  else if(focus.tab==='conversion')setMode('conversion')
+  else if(focus.tab==='subtitle'||focus.tab==='extract'){setKind(focus.tab);setMode(focus.tab)}
+ },[focus])
+ useEffect(()=>{
+  if(!focus||focus.tab==='models'||focus.tab==='conversion'||!snapshot||located.current===focus.seq)return
+  located.current=focus.seq
+  if(!snapshot.tasks.some(t=>t.id===focus.taskId)){msg.info('对应任务已清理，已打开所属模块');return}
+  requestAnimationFrame(()=>document.querySelector('[data-dashboard-task-id="'+CSS.escape(focus.taskId)+'"]')?.scrollIntoView({block:'center',behavior:'smooth'}))
+ },[focus,snapshot])
  const tasks=snapshot?.tasks.filter(t=>t.kind===kind)||[]
  const running=snapshot?.tasks.filter(t=>t.state==='running').length||0
  const queued=snapshot?.tasks.filter(t=>t.state==='queued').length||0
@@ -72,9 +88,9 @@ export function VideoProcessingPage(){
     {!!skipped.length&&<details className="rounded-xl border border-amber-500/25 p-3 text-xs"><summary className="cursor-pointer text-amber-500">已跳过 {skipped.length} 项，点击查看原因</summary><div className="mt-2 max-h-48 space-y-2 overflow-auto">{skipped.map((item,index)=><p key={item.path+index} className="break-all muted">{item.path}：{item.reason}</p>)}</div></details>}
     <MediaProcessingOptions kind={kind} prefs={snapshot.preferences} models={snapshot.models} disabled={busy} onChange={changePrefs} onDirectory={()=>void run(async()=>{const path=await api.chooseOutputDirectory();if(path)await api.setPreferences({outputDirectory:path})})} onModels={()=>setManagerOpen(true)}/>
     {kind==='subtitle'&&!snapshot.models.some(model=>model.installed&&model.id===snapshot.preferences.selectedModelId)&&<div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 text-xs"><AlertTriangle size={17} className="text-amber-500"/><span className="flex-1 muted">当前模型尚未安装，请先下载或导入模型。</span><Button size="sm" onClick={()=>setManagerOpen(true)}>管理模型</Button></div>}
-    <MediaQueue tasks={tasks} checked={checked} busy={busy} onCheck={setChecked} onStart={()=>void run(async()=>{await api.start(checked,snapshot.preferences);setChecked([])})} onCancel={id=>void run(()=>api.cancel(id))} onRetry={id=>void run(()=>api.retry(id))} onTrack={(id,index)=>void run(()=>api.setAudioTrack(id,index))} onOpen={id=>void run(()=>api.openOutput(id))} onPreview={id=>void run(async()=>{const text=await api.preview(id);if(mounted.current)setPreview({id,name:snapshot.tasks.find(t=>t.id===id)?.name||'字幕',text})})} onClear={()=>void run(()=>api.clearFinished())}/>
+    <MediaQueue tasks={tasks} highlightTaskId={focus?.tab===kind?focus.taskId:undefined} checked={checked} busy={busy} onCheck={setChecked} onStart={()=>void run(async()=>{await api.start(checked,snapshot.preferences);setChecked([])})} onCancel={id=>void run(()=>api.cancel(id))} onRetry={id=>void run(()=>api.retry(id))} onTrack={(id,index)=>void run(()=>api.setAudioTrack(id,index))} onOpen={id=>void run(()=>api.openOutput(id))} onPreview={id=>void run(async()=>{const text=await api.preview(id);if(mounted.current)setPreview({id,name:snapshot.tasks.find(t=>t.id===id)?.name||'字幕',text})})} onClear={()=>void run(()=>api.clearFinished())}/>
    </div>
-   <div id="text-conversion-workspace" role="tabpanel" aria-label="简繁转换" className={mode==='conversion'?'':'hidden'}><TextConversionWorkspace active={mode==='conversion'}/></div>
+   <div id="text-conversion-workspace" role="tabpanel" aria-label="简繁转换" className={mode==='conversion'?'':'hidden'}><TextConversionWorkspace active={mode==='conversion'} focusTaskId={focus?.tab==='conversion'?focus.taskId:undefined} focusSeq={focus?.seq}/></div>
    <ModelManagerDialog open={managerOpen} onOpenChange={setManagerOpen} snapshot={snapshot} busy={busy} run={run} onPreferences={changePrefs}/>
   </>}
   <DialogShell open={!!preview} onOpenChange={open=>{if(!open)setPreview(null)}} width="lg" title={'SRT 字幕预览'+(preview?' · '+preview.name:'')} description="请人工校对 AI 识别结果。字幕已保存在输出目录，可另存一份 SRT。" footer={<><Button onClick={()=>setPreview(null)}>关闭</Button><Button variant="primary" disabled={busy} onClick={()=>void run(async()=>{if(preview){const path=await api.exportSubtitle(preview.id);if(path)msg.success('字幕已导出：'+path)}})}><Download size={15}/>另存 SRT</Button></>}><pre className="min-h-52 whitespace-pre-wrap break-words rounded-xl bg-[var(--panel-alt)] p-4 font-mono text-xs leading-6">{preview?.text}</pre></DialogShell>

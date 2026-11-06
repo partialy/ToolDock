@@ -56,6 +56,10 @@ export class TextConversionService {
    if(win&&!win.isDestroyed())win.webContents.send('textConversion:changed')
   },200)
  }
+ /** 工作台汇总只取任务元信息，不传送源路径、保存路径或正文。 */
+ dashboardTasks(){
+  return [...this.tasks.values()].map(t=>({id:t.id,name:t.name,state:t.state,percent:t.percent,createdAt:t.createdAt,updatedAt:t.updatedAt,error:t.error}))
+ }
  status():ConversionSnapshot{
   return{tasks:[...this.tasks.values()].map(({worker,resultPath,resultPrefs,queuedPrefs,ino,...task})=>({...task,savedPaths:[...task.savedPaths]})),preferences:{...this.preferences},busy:this.running.size>0||this.exporting>0}
  }

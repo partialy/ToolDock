@@ -1,5 +1,5 @@
 import {msg} from '@/components/ui/message'
-import {useCallback,useEffect,useMemo,useState} from 'react'
+import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {ArrowDownToLine,ArrowUpFromLine,BellRing,Check,Copy,Download,FolderOpen,Folder,FolderPlus,ChevronDown,ChevronRight,History,HardDrive,MonitorUp,Plus,Power,RefreshCw,ShieldCheck,Trash2,Users,Wifi,X} from 'lucide-react'
 import {Button} from '@/components/ui/button'
 import {SelectField} from '@/components/ui/select-field'
@@ -14,7 +14,7 @@ import {ShareHistoryDialog} from '@/components/ShareHistoryDialog'
 const CARD='min-w-0 space-y-4 rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5'
 const human=(n:number)=>n>=1024**3?(n/1024**3).toFixed(2)+' GiB':n>=1024**2?(n/1024**2).toFixed(1)+' MiB':(n/1024).toFixed(1)+' KiB'
 const fallback=(v:unknown)=>v instanceof Error?v.message:String(v)
-export function FileTransferPage(){
+export function FileTransferPage({focus}:{focus?:import('@/shared/dashboardModels').DashboardFocus|null}){
  const dialog=useDialog()
  const [snapshot,setSnapshot]=useState<TransferSnapshot|null>(null)
  const [selectedIp,setSelectedIp]=useState('')
@@ -95,6 +95,14 @@ export function FileTransferPage(){
  }
  const inspectFolder=async(id:string)=>{try{const result=await window.toolDock.transfer.directoryStats(id);setDirectoryStats(old=>({...old,[id]:result}))}catch(e){msg.error(e)}}
  const restoreHistory=(result:AddSourcesResult)=>{void load();if(result.errors.length)msg.warning(result.errors.join('\n'));msg.success('恢复 '+result.added+' 项，跳过 '+result.skipped+' 项')}
+ const focusLocated=useRef(0)
+ useEffect(()=>{
+  if(!focus||!snapshot||focusLocated.current===focus.seq)return
+  focusLocated.current=focus.seq
+  setTab('tasks')
+  if(!snapshot.tasks.some(t=>t.id===focus.taskId)){msg.info('传输任务已清理，已打开传输记录');return}
+  requestAnimationFrame(()=>document.querySelector('[data-dashboard-task-id="'+CSS.escape(focus.taskId)+'"]')?.scrollIntoView({block:'center',behavior:'smooth'}))
+ },[focus,snapshot])
  const tabs=[{id:'shares',name:'分享文件',count:snapshot?.shares.length||0},{id:'incoming',name:'待接收',count:pending.length},{id:'tasks',name:'传输记录',count:snapshot?.tasks.length||0},{id:'devices',name:'已连接设备',count:snapshot?.devices.length||0}] as const
  return <div className="relative @container mx-auto max-w-[1460px] space-y-4 p-5">
   <header className="flex flex-wrap items-center gap-3"><span className="rounded-xl bg-indigo-500/15 p-3 text-indigo-400"><ToolPageIcon size={24}/></span><div className="min-w-0 flex-1"><h1 className="text-xl font-semibold">文件快传</h1><p className="mt-1 text-xs muted">在可信局域网内共享文件、接收设备上传 · 纯本地传输</p></div>
@@ -142,7 +150,7 @@ export function FileTransferPage(){
     {!pending.length&&<p className="py-12 text-center text-sm muted">暂无等待接收的文件</p>}
     {pending.map(u=><div key={u.id} className="flex flex-wrap items-center gap-3 border-b border-[var(--border)] py-3"><input type="checkbox" aria-label={'选择 '+u.name} checked={checked.includes(u.id)} onChange={e=>setChecked(old=>e.target.checked?[...old,u.id]:old.filter(x=>x!==u.id))}/><ArrowUpFromLine size={17} className="text-indigo-400"/><div className="min-w-0 flex-1"><p className="break-all text-xs font-medium">{u.name}</p><p className="mt-1 text-[11px] muted">{human(u.size)} · 来自 {u.ip}</p></div><Button size="sm" onClick={()=>void approve([u.id])}>接收</Button><Button size="sm" variant="danger" onClick={()=>void reject([u.id])}>拒绝</Button></div>)}
    </div>}
-   {tab==='tasks'&&<div className="space-y-3">{!snapshot?.tasks.length&&<p className="py-12 text-center text-sm muted">本次会话暂无传输记录</p>}{snapshot?.tasks.map(t=><div className="space-y-2 border-b border-[var(--border)] py-2" key={t.id}><div className="flex justify-between gap-3 text-xs"><span className="truncate">{t.direction==='download'?'下载':'上传'} · {t.name}</span><span className="muted">{t.status}</span></div><progress value={t.completed} max={t.total} className="w-full"/><p className="text-[11px] muted">{human(t.completed)} / {human(t.total)} · {t.ip}</p>{['running','uploading','paused'].includes(t.status)&&<Button size="sm" variant="danger" onClick={()=>void dialog.confirmAction({title:'取消传输任务',description:'取消「'+t.name+'」传输？未接收的暂存内容将被删除。',variant:'danger',confirmText:'取消任务',onConfirm:()=>window.toolDock.transfer.cancelTask(t.id)})}>取消任务</Button>}</div>)}</div>}
+   {tab==='tasks'&&<div className="space-y-3">{!snapshot?.tasks.length&&<p className="py-12 text-center text-sm muted">本次会话暂无传输记录</p>}{snapshot?.tasks.map(t=><div data-dashboard-task-id={t.id} className={'scroll-mt-24 space-y-2 border-b border-[var(--border)] py-2 '+(focus?.taskId===t.id?'bg-indigo-500/10':'')} key={t.id}><div className="flex justify-between gap-3 text-xs"><span className="truncate">{t.direction==='download'?'下载':'上传'} · {t.name}</span><span className="muted">{t.status}</span></div><progress value={t.completed} max={t.total} className="w-full"/><p className="text-[11px] muted">{human(t.completed)} / {human(t.total)} · {t.ip}</p>{['running','uploading','paused'].includes(t.status)&&<Button size="sm" variant="danger" onClick={()=>void dialog.confirmAction({title:'取消传输任务',description:'取消「'+t.name+'」传输？未接收的暂存内容将被删除。',variant:'danger',confirmText:'取消任务',onConfirm:()=>window.toolDock.transfer.cancelTask(t.id)})}>取消任务</Button>}</div>)}</div>}
    {tab==='devices'&&<div className="space-y-3">{!snapshot?.devices.length&&<p className="py-12 text-center text-sm muted">暂无已授权设备</p>}{snapshot?.devices.map(device=><div key={device.id} className="flex flex-wrap items-center gap-3 border-b border-[var(--border)] py-3"><Users size={18}/><div className="min-w-0 flex-1"><p className="truncate text-xs">{device.agent}</p><p className="text-[11px] muted">{device.ip} · 最后活动：{new Date(device.lastSeen).toLocaleTimeString()}</p></div><Button size="sm" variant="danger" onClick={()=>void dialog.confirmAction({title:'断开设备',description:'是否立即撤销 '+device.ip+' 的访问权限？',variant:'danger',onConfirm:async()=>{await window.toolDock.transfer.revokeDevice(device.id)}})}>断开</Button></div>)}</div>}
   </section>
   <DropOverlay visible={dropOver} label="释放以分享文件或文件夹"/>

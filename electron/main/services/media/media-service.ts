@@ -45,6 +45,10 @@ export class MediaService {
  assertIdle(){if(this.closing)throw Error('ToolDock 正在退出');if(this.isBusy())throw Error('请先停止媒体任务及目录操作')}
  async dataMutation<T>(fn:()=>T|Promise<T>):Promise<T>{this.assertIdle();if(this.models.isBusy())throw Error('请先暂停模型下载及引擎安装');this.exclusive=true;try{const result=await fn();if(result&&typeof result==='object'&&'restartRequired' in result&&result.restartRequired)this.restartRequired=true;return result}finally{this.exclusive=false}}
  private assertAvailable(){if(this.closing||this.exclusive||this.restartRequired)throw Error(this.restartRequired?'数据目录已变更，请重启 ToolDock 后继续':'媒体服务正在退出或执行数据目录操作')}
+ /** 面向工作台的轻量只读数据；不扫描/哈希模型文件，不包含任何文件路径。 */
+ dashboardState(){
+  return {tasks:this.tasks.map(t=>({id:t.id,kind:t.kind,name:t.name,state:t.state,percent:t.percent,createdAt:t.createdAt,updatedAt:t.updatedAt,error:t.error})),downloads:this.models.downloads()}
+ }
  async status():Promise<MediaSnapshot>{return{tasks:this.tasks.map(t=>({...t,probe:{...t.probe,audioTracks:t.probe.audioTracks.map(a=>({...a}))}})),preferences:this.getPreferences(),models:await this.models.list(),downloads:this.models.downloads(),engines:await engineStatus(this.runtimeDirectory()),busy:this.isBusy()||this.models.isBusy()}}
  getTask(id:string){const t=this.tasks.find(t=>t.id===id);if(!t)throw Error('任务不存在');return t}
  async setPreferences(input:Partial<MediaPreferences>){this.assertAvailable();const patch=mediaPreferencesPatchSchema.parse(input);if(patch.modelDirectory!==undefined||(patch.ffmpegOverride!==undefined&&patch.ffmpegOverride!==''))throw Error('请使用专用目录或程序选择器');if(patch.ffmpegOverride==='')this.assertIdle();const p=mediaPreferencesSchema.parse({...this.preferences,...patch});if(p.outputDirectory&&!path.isAbsolute(p.outputDirectory))throw Error('输出目录必须为绝对路径');this.savePreferences(p)}

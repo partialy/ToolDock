@@ -20,7 +20,7 @@ const outputEncodingOptions=[{value:'preserve',label:'保留原编码'},{value:'
 const statusLabels:Record<ConversionTask['state'],string>={ready:'待转换',queued:'排队中',running:'转换中',completed:'已完成',failed:'转换失败',cancelled:'已取消'}
 const bytes=(n:number)=>n>=1024*1024?(n/1024/1024).toFixed(1)+' MB':n>=1024?(n/1024).toFixed(1)+' KB':n+' B'
 
-export function TextConversionWorkspace({active}:{active:boolean}){
+export function TextConversionWorkspace({active,focusTaskId,focusSeq}:{active:boolean;focusTaskId?:string;focusSeq?:number}){
  const api=window.toolDock.textConversion,dialog=useDialog()
  const [snapshot,setSnapshot]=useState<ConversionSnapshot|null>(null)
  const [selected,setSelected]=useState<string[]>([])
@@ -62,6 +62,14 @@ export function TextConversionWorkspace({active}:{active:boolean}){
  const drop=useWindowFileDrop(files=>importSources(files.map(f=>window.toolDock.transfer.pathForDroppedFile(f)).filter(Boolean)),active&&!busy&&!preview&&!renaming&&!encodingTask)
  const tasks=snapshot?.tasks||[],preferences=snapshot?.preferences
  useEffect(()=>{setDraftSuffix(snapshot?.preferences.suffix||'')},[snapshot?.preferences.suffix])
+ const focusLocated=useRef<number|undefined>(undefined)
+ useEffect(()=>{
+  if(!active||!focusTaskId||focusSeq===undefined||!snapshot||focusLocated.current===focusSeq)return
+  focusLocated.current=focusSeq
+  if(!snapshot.tasks.some(t=>t.id===focusTaskId)){msg.info('对应转换任务已清理，已打开简繁转换');return}
+  setSelected([focusTaskId])
+  requestAnimationFrame(()=>document.querySelector('[data-dashboard-task-id="'+CSS.escape(focusTaskId)+'"]')?.scrollIntoView({block:'center',behavior:'smooth'}))
+ },[active,focusTaskId,focusSeq,snapshot])
  const checked=new Set(selected),all=tasks.length>0&&tasks.every(t=>checked.has(t.id))
  const allIds=tasks.map(t=>t.id)
  const patch=(p:Partial<ConversionPreferences>)=>void run(()=>api.setPreferences(p))
@@ -145,7 +153,7 @@ export function TextConversionWorkspace({active}:{active:boolean}){
    {!!skipped.length&&<details className="border-b border-amber-500/20 px-4 py-3 text-xs"><summary className="cursor-pointer text-amber-500">已跳过 {skipped.length} 项，点击查看原因</summary>{skipped.map((item,i)=><div key={i} className="mt-1 break-all muted">{item.path} · {item.reason}</div>)}</details>}
    <div className="grid grid-cols-1 gap-0 border-b border-[var(--border)] bg-[var(--panel-alt)] text-xs font-semibold md:grid-cols-2"><div className="px-4 py-3">输入文件</div><div className="border-t border-[var(--border)] px-4 py-3 md:border-l md:border-t-0">输出文件</div></div>
    {!tasks.length?<div className="flex flex-col items-center gap-3 px-5 py-14 text-center"><Upload size={30} className="muted opacity-70"/><p className="text-sm">还未选择文件，拖动文件到窗口开始使用</p><p className="text-xs muted">支持 TXT、MD、SRT、VTT、LRC；可选择多个文件或整个文件夹</p></div>:
-    <div className="max-h-[520px] overflow-y-auto divide-y divide-[var(--border)]">{tasks.map(t=><div key={t.id} className="grid min-w-0 grid-cols-1 md:grid-cols-2">
+    <div className="max-h-[520px] overflow-y-auto divide-y divide-[var(--border)]">{tasks.map(t=><div key={t.id} data-dashboard-task-id={t.id} className={'grid min-w-0 scroll-mt-24 grid-cols-1 md:grid-cols-2 '+(focusTaskId===t.id?'bg-indigo-500/10':'')}>
      <div className="flex min-w-0 items-start gap-2.5 px-4 py-3"><input type="checkbox" aria-label={'选择 '+t.name} checked={checked.has(t.id)} onChange={e=>setSelected(v=>e.target.checked?[...new Set([...v,t.id])]:v.filter(id=>id!==t.id))} className="mt-1 h-4 w-4 accent-indigo-500"/><FilePlus2 size={17} className="mt-0.5 shrink-0 text-indigo-400"/><div className="min-w-0 flex-1"><p title={t.inputPath} className="truncate text-sm font-medium">{t.name}</p><p className="mt-1 truncate text-xs muted" title={t.inputPath}>{bytes(t.size)} · {t.inputPath}</p>{t.encodingOverride&&<p className="mt-1 text-xs muted">输入编码：{t.encodingOverride}</p>}</div></div>
      <div className="flex min-w-0 items-start gap-2.5 border-t border-[var(--border)] px-4 py-3 md:border-l md:border-t-0"><div className="mt-0.5 shrink-0">{t.state==='completed'?<CheckCircle2 size={17} className="text-emerald-500"/>:t.state==='failed'?<XCircle size={17} className="text-red-400"/>:t.state==='running'?<LoaderCircle size={17} className="animate-spin text-indigo-400"/>:<FilePlus2 size={17} className="muted"/>}</div><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium" title={t.outputName}>{t.outputName}</p><p className={'mt-1 text-xs '+(t.state==='failed'?'text-red-400':'muted')}>{statusLabels[t.state]}{t.state==='running'?' · '+t.percent+'%':''}{t.detectedEncoding?' · '+t.detectedEncoding:''}{t.outputBytes!==undefined?' · '+bytes(t.outputBytes):''}</p>{t.state==='running'&&<div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--panel-alt)]"><div style={{width:t.percent+'%'}} className="h-full rounded-full bg-indigo-500"/></div>}{t.error&&<p role="alert" className="mt-1 break-words text-xs text-red-400">{t.error}</p>}</div><TextConversionRowMenu task={t} onAction={action=>rowAction(t,action)}/></div>
     </div>)}</div>}

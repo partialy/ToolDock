@@ -1,6 +1,14 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 const invoke=(channel:string,payload?:unknown)=>ipcRenderer.invoke(channel,payload)
 const api={
+ dashboard:{
+  snapshot:()=>invoke('dashboard:snapshot'),
+  onChange:(cb:()=>void)=>{
+   const listener=()=>cb(),channels=['quickLaunch:changed','media:changed','textConversion:changed','transfer:changed']
+   channels.forEach(channel=>ipcRenderer.on(channel,listener))
+   return()=>channels.forEach(channel=>ipcRenderer.off(channel,listener))
+  }
+ },
  appNav:{
   ready:()=>invoke('app:ready'),
   onNavigate:(callback:(target:{toolId:string;taskType?:string;taskId?:string})=>void)=>{

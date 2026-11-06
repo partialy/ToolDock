@@ -33,6 +33,7 @@ import { TimeConverterPage } from '@/pages/TimeConverterPage'
 import { UuidGeneratorPage } from '@/pages/UuidGeneratorPage'
 import { builtinByTarget } from '@/shared/builtinToolRegistry'
 import type {Category,Tool} from '@/types/models'
+import type {DashboardTask,DashboardFocus} from '@/shared/dashboardModels'
 
 type Editor=({kind:'category';item?:Category}|{kind:'tool';item?:Tool})|null
 function WebTool({toolId}:{toolId:string}){
@@ -67,17 +68,30 @@ export default function App(){
  const [editor,setEditor]=useState<Editor>(null)
  const [unsaved,setUnsaved]=useState(false)
  useEffect(()=>{if(ws.error){msg.error(ws.error);ws.setError('')}},[ws.error,ws.setError])
- const [pending,setPending]=useState<{kind:'push';destination:string}|{kind:'move';index:number}|null>(null)
+ const [pending,setPending]=useState<{kind:'push';destination:string;focus?:Omit<DashboardFocus,'seq'>}|{kind:'move';index:number}|null>(null)
+ const [focus,setFocus]=useState<DashboardFocus|null>(null)
+ const focusSequence=useRef(0)
  useEffect(()=>{const listener=(e:Event)=>setUnsaved(Boolean((e as CustomEvent<boolean>).detail));window.addEventListener('tooldock:unsaved',listener);return()=>window.removeEventListener('tooldock:unsaved',listener)},[])
  const active=history[position]||'home'
  const tool=active.startsWith('tool:')?ws.tools.find(t=>t.id===active.slice(5)):undefined
  const title=tool?.name||({home:'工作台','quick-launch':'快捷启动',manager:'工具管理',settings:'设置',about:'关于'} as Record<string,string>)[active]||'ToolDock'
- const commitNavigation=useCallback((destination:string)=>{
+ const commitNavigation=useCallback((destination:string,nextFocus?:Omit<DashboardFocus,'seq'>)=>{
+  if(destination===active&&!nextFocus)return
+  setFocus(nextFocus?{...nextFocus,seq:++focusSequence.current}:null)
+  setUnsaved(false)
   if(destination===active)return
   setHistory(prev=>[...prev.slice(0,position+1),destination].slice(-60))
-  setPosition(Math.min(position+1,59));setUnsaved(false)
+  setPosition(Math.min(position+1,59))
  },[active,position])
- const navigate=useCallback((destination:string)=>{if(destination===active)return;if(unsaved)setPending({kind:'push',destination});else commitNavigation(destination)},[active,unsaved,commitNavigation])
+ const navigate=useCallback((destination:string,nextFocus?:Omit<DashboardFocus,'seq'>)=>{
+  if(destination===active&&!nextFocus)return
+  if(unsaved)setPending({kind:'push',destination,focus:nextFocus})
+  else commitNavigation(destination,nextFocus)
+ },[active,unsaved,commitNavigation])
+ const openDashboardTask=(task:DashboardTask)=>{
+  const destination=task.module==='quick-launch'?'quick-launch':task.module==='file-transfer'?'tool:builtin-file-transfer':'tool:builtin-video-processing'
+  navigate(destination,{module:task.module,tab:task.tab,taskId:task.id})
+ }
  const latestWorkspace=useRef(ws);latestWorkspace.current=ws
  const navigationRef=useRef(navigate);navigationRef.current=navigate
  useEffect(()=>{
@@ -91,8 +105,8 @@ export default function App(){
   void window.toolDock.appNav.ready().catch(e=>msg.error(e))
   return off
  },[ws.busy])
- const stepHistory=(index:number)=>{if(index<0||index>=history.length||index===position)return;if(unsaved)setPending({kind:'move',index});else setPosition(index)}
- const confirmNavigation=()=>{if(!pending)return;if(pending.kind==='push')commitNavigation(pending.destination);else{setPosition(pending.index);setUnsaved(false)}setPending(null)}
+ const stepHistory=(index:number)=>{if(index<0||index>=history.length||index===position)return;if(unsaved)setPending({kind:'move',index});else{setFocus(null);setPosition(index)}}
+ const confirmNavigation=()=>{if(!pending)return;if(pending.kind==='push')commitNavigation(pending.destination,pending.focus);else{setFocus(null);setPosition(pending.index);setUnsaved(false)}setPending(null)}
  const openEditor=(e:Editor)=>{setEditor(e);void window.toolDock.views.hide()}
  const closeEditor=()=>{setEditor(null);if(tool?.type==='link')void window.toolDock.views.show()}
  const setSidebarWidth=(x:number)=>{const width=Math.max(200,Math.min(440,x));void ws.setPreference('sidebarWidth',width)}
@@ -102,15 +116,15 @@ export default function App(){
  useEffect(()=>{if(!ws.busy&&tool?.type!=='link')void window.toolDock.views.hide()},[ws.busy,tool?.type,active])
  useEffect(()=>{if(editor)void window.toolDock.views.hide()},[editor])
  const body=()=>{
-  if(active==='home')return <HomePage ws={ws} onGo={navigate} onAdd={()=>openEditor({kind:'tool'})}/>
+  if(active==='home')return <HomePage ws={ws} onGo={navigate} onAdd={()=>openEditor({kind:'tool'})} onTask={openDashboardTask}/>
   if(active==='manager')return <ManagerPage ws={ws} onEdit={openEditor}/>
   if(active==='settings')return <SettingsPage ws={ws}/>
-  if(active==='quick-launch')return <QuickLaunchPage trigger={ws.settings.quickLaunchTrigger}/>
+  if(active==='quick-launch')return <QuickLaunchPage trigger={ws.settings.quickLaunchTrigger} focus={focus?.module==='quick-launch'?focus:null}/>
   if(active==='about')return <div className="mx-auto max-w-3xl p-12"><div className="mb-4 flex items-center gap-3"><AppLogo size={48}/><h1 className="text-2xl font-semibold">ToolDock</h1></div><p className="mb-5 text-sm muted">桌面工具聚合平台 · v{version}</p><p className="text-sm leading-8 muted">将常用网页、开发工具与快捷启动集中在一个独立工作区。</p></div>
   if(tool?.type==='link')return <WebTool key={tool.id} toolId={tool.id}/>
   if(tool?.type==='internal'&&builtinByTarget(tool.target)){
-   const pages:Record<string,React.ReactNode>={'key-generator':<KeyGeneratorPage key={tool.id}/>,'json-tool':<JsonToolPage key={tool.id}/>,'text-diff':<TextDiffPage key={tool.id}/>,'codec-tool':<CodecToolPage key={tool.id}/>,'command-tool':<CommandToolPage key={tool.id}/>,'image-processor':<ImageProcessorPage key={tool.id}/>,'logo-icon-generator':<LogoIconGeneratorPage key={tool.id}/>,'image-encoding':<ImageEncodingPage key={tool.id}/>,'qr-code-tool':<QrCodeToolPage key={tool.id}/>,'file-transfer':<FileTransferPage key={tool.id}/>,'time-converter':<TimeConverterPage key={tool.id}/>,'uuid-generator':<UuidGeneratorPage key={tool.id}/>}
-   if(tool.target==='video-processing')return <VideoProcessingPage key={tool.id}/>
+   const pages:Record<string,React.ReactNode>={'key-generator':<KeyGeneratorPage key={tool.id}/>,'json-tool':<JsonToolPage key={tool.id}/>,'text-diff':<TextDiffPage key={tool.id}/>,'codec-tool':<CodecToolPage key={tool.id}/>,'command-tool':<CommandToolPage key={tool.id}/>,'image-processor':<ImageProcessorPage key={tool.id}/>,'logo-icon-generator':<LogoIconGeneratorPage key={tool.id}/>,'image-encoding':<ImageEncodingPage key={tool.id}/>,'qr-code-tool':<QrCodeToolPage key={tool.id}/>,'file-transfer':<FileTransferPage key={tool.id} focus={focus?.module==='file-transfer'?focus:null}/>,'time-converter':<TimeConverterPage key={tool.id}/>,'uuid-generator':<UuidGeneratorPage key={tool.id}/>}
+   if(tool.target==='video-processing')return <VideoProcessingPage key={tool.id} focus={focus?.module==='video-processing'?focus:null}/>
    return pages[tool.target]
   }
   return <div className="p-10 muted">页面不存在或工具已删除。请从侧栏选择工具。</div>

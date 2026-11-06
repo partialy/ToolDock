@@ -21,6 +21,7 @@ import {appIconPath,createAppTray,updateAppTray} from './services/app-tray'
 import {MediaService} from './services/media/media-service'
 import {registerMediaIpc} from './services/media/ipc'
 import {TextConversionService} from './services/text-conversion/text-conversion-service'
+import {getDashboardSnapshot} from './services/dashboard'
 import {registerTextConversionIpc} from './services/text-conversion/ipc'
 
 const devMode=!app.isPackaged
@@ -71,6 +72,12 @@ const toolInput=z.object({id:z.string().optional(),name:z.string().min(1).max(80
 const order=z.array(z.string()).max(10000)
 const dimensions=z.object({x:z.number().finite(),y:z.number().finite(),width:z.number().finite().min(0).max(10000),height:z.number().finite().min(0).max(10000)})
 function channels(){
+ register('dashboard:snapshot',()=>getDashboardSnapshot({
+  quickLaunch:()=>quickLaunch.tasks(),
+  media:()=>media.dashboardState(),
+  conversion:()=>textConversion.dashboardTasks(),
+  transfer:()=>fileTransfer.getSnapshot()
+ }))
  registerMediaIpc(register,media,()=>win)
  registerTextConversionIpc(register,textConversion,()=>win)
  register('app:ready',()=>{rendererReady=true;flushPinnedNavigation()})

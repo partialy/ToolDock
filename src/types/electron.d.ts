@@ -1,11 +1,13 @@
 import type { Category, Tool, Settings, DataInfo, CryptoResult } from './models'
 import type {QuickLaunchAPI} from '../shared/quickLaunchModels'
+import type {DashboardSnapshot} from '../shared/dashboardModels'
 import type {MediaAPI} from '../shared/mediaModels'
 import type {TextConversionAPI} from '../shared/textConversionModels'
 import type {PipelineInput,PipelineSaved,PipelineSummary} from '../shared/codecModels'
 import type {KillInput,JunctionInput,JunctionPreview,JunctionResult,PortQueryResult,TerminateResult} from '../shared/commandModels'
 import type {TransferPreferences,TransferSnapshot,SharedFile,LanInterface,ShareHistory,DirectoryPage,DirectoryStats,AddSourcesResult} from '../shared/fileTransferModels'
 export interface ToolDockAPI {
+  dashboard:{snapshot():Promise<DashboardSnapshot>;onChange(cb:()=>void):()=>void}
   appNav:{ready():Promise<void>;onNavigate(cb:(target:{toolId:string;taskType?:string;taskId?:string})=>void):()=>void}
   media:MediaAPI
   textConversion:TextConversionAPI
