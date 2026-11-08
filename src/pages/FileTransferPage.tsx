@@ -24,8 +24,6 @@ export function FileTransferPage({focus}:{focus?:import('@/shared/dashboardModel
  const [selectedIp,setSelectedIp]=useState('')
  const [tab,setTab]=useState<Tab>('pool')
  const [qr,setQr]=useState('')
- const [showQr,setShowQr]=useState(false)
- const [showSettings,setShowSettings]=useState(false)
  const [cap,setCap]=useState('20')
  const [busy,setBusy]=useState(false)
  const [revision,setRevision]=useState(0)
@@ -121,40 +119,61 @@ export function FileTransferPage({focus}:{focus?:import('@/shared/dashboardModel
    <div className="min-w-0 flex-1"><h1 className="text-xl font-semibold">文件快传</h1><p className="mt-1 text-xs muted">主设备共享 · 全设备文件池 · 文字消息池</p></div>
    <span role="status" className={'rounded-full px-3 py-1.5 text-xs '+(snapshot?.running?'bg-emerald-500/10 text-emerald-400':'bg-[var(--panel-alt)] muted')}>{snapshot?.running?'● 运行中':'○ 未启动'}</span>
   </header>
+
   <section className={CARD+' space-y-3'}>
-   <div className="flex flex-wrap items-center justify-between gap-3">
-    <div className="flex min-w-0 items-center gap-2"><Wifi size={17} className={snapshot?.running?'text-emerald-400':'muted'}/><div className="min-w-0"><h2 className="text-sm font-semibold">局域网共享服务</h2><p className="mt-1 truncate text-xs muted">{snapshot?.running?snapshot.url||'': '选择本机局域网网卡，然后启动服务'}</p></div></div>
-    <div className="flex flex-wrap items-center gap-2">
-     {snapshot?.running&&<><Button size="sm" onClick={()=>void copy(snapshot.url||'')}><Copy size={14}/>复制地址</Button><Button size="sm" onClick={()=>setShowQr(v=>!v)}><QrCode size={14}/>二维码 / 访问码</Button></>}
-     <Button size="sm" onClick={()=>setShowSettings(v=>!v)}><Settings2 size={14}/>设置</Button>
+   <div className="flex flex-wrap items-center gap-3">
+    <div className="flex min-w-0 flex-1 items-center gap-2">
+     <Wifi size={17} className={snapshot?.running?'shrink-0 text-emerald-400':'shrink-0 muted'}/>
+     <div className="min-w-0"><h2 className="text-sm font-semibold">局域网共享服务</h2><p className="mt-0.5 truncate text-[11px] muted" title={snapshot?.url||''}>{snapshot?.running?snapshot.url||'':'配置共享设置后，选择局域网地址启动服务'}</p></div>
+     {snapshot?.running&&<Button size="icon" variant="ghost" className="shrink-0" aria-label="复制连接地址" title="复制连接地址" onClick={()=>void copy(snapshot.url||'')}><Copy size={14}/></Button>}
+    </div>
+    <div className="ml-auto flex shrink-0 items-center gap-2">
+     <div className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--panel-alt)] px-3 py-1.5">
+      <div className="text-center"><p className="text-[10px] muted">访问码</p><p className={'font-mono text-lg font-semibold leading-6 tracking-[.16em] '+(snapshot?.running?'text-[var(--foreground)]':'muted')}>{snapshot?.running?snapshot.pin||'------':'------'}</p></div>
+      <Button size="icon" variant="ghost" disabled={!snapshot?.running||!snapshot.pin} aria-label="复制访问码" title="复制访问码" onClick={()=>void copy(snapshot?.pin||'')}><Copy size={14}/></Button>
+     </div>
      <Button size="sm" variant={snapshot?.running?'danger':'primary'} disabled={busy||!snapshot} onClick={snapshot?.running?()=>void stop():start}><Power size={14}/>{snapshot?.running?'停止':'启动'}</Button>
     </div>
    </div>
-   {!snapshot?.running&&<div className="max-w-md"><SelectField ariaLabel="选择快传网卡" value={selectedIp} onValueChange={setSelectedIp} options={snapshot?.interfaces.map(x=>({value:x.address,label:x.address,description:x.name}))||[]} placeholder="选择网卡 IPv4" className="w-full"/></div>}
-   <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-[var(--border)] pt-3 text-xs">
-    <span className="muted">文件池容量 <strong className="ml-1 font-semibold text-[var(--foreground)]">{human(usage)} / {human(quota)}</strong></span>
-    <div className="h-1.5 min-w-[120px] max-w-[260px] flex-1 overflow-hidden rounded-full bg-[var(--panel-alt)]"><div className="h-full rounded-full bg-indigo-500" style={{width:Math.min(100,usage/quota*100)+'%'}}/></div>
-    <span className="muted">消息 {snapshot?.pool.messageCount||0} / 300</span>
-    <span className="muted">已连接 {snapshot?.devices.length||0} 台设备</span>
+   <div className="grid items-stretch gap-3 border-t border-[var(--border)] pt-3 @min-[740px]:grid-cols-[minmax(0,1fr)_188px]">
+    <div className="min-w-0 space-y-3">
+     <div className="flex items-center gap-2"><Settings2 size={15} className="muted"/><h3 className="text-xs font-semibold">共享设置</h3><span className="ml-auto text-[10px] muted">开关与并发即时生效</span></div>
+     {!snapshot?.running&&<div className="flex min-w-0 items-center gap-2">
+      <span className="shrink-0 text-[11px] muted">局域网地址</span>
+      <SelectField ariaLabel="选择快传网卡" value={selectedIp} onValueChange={setSelectedIp} options={snapshot?.interfaces.map(x=>({value:x.address,label:x.address,description:x.name}))||[]} placeholder="选择网卡 IPv4" className="h-9 min-w-0 flex-1"/>
+     </div>}
+     <div className="grid gap-2 @min-[530px]:grid-cols-3">
+      <label className="flex min-w-0 items-center justify-between gap-2 rounded-lg bg-[var(--panel-alt)] px-2.5 py-2 text-[11px]"><span>主设备文件下载</span><SwitchField ariaLabel="主设备共享下载" checked={Boolean(p?.allowDownload)} onCheckedChange={v=>void setPrefs({allowDownload:v})} disabled={busy||!p}/></label>
+      <label className="flex min-w-0 items-center justify-between gap-2 rounded-lg bg-[var(--panel-alt)] px-2.5 py-2 text-[11px]"><span>文件池上传</span><SwitchField ariaLabel="文件池上传" checked={Boolean(p?.allowPoolUpload)} onCheckedChange={v=>void setPrefs({allowPoolUpload:v})} disabled={busy||!p}/></label>
+      <label className="flex min-w-0 items-center justify-between gap-2 rounded-lg bg-[var(--panel-alt)] px-2.5 py-2 text-[11px]"><span>文件池下载</span><SwitchField ariaLabel="文件池下载" checked={Boolean(p?.allowPoolDownload)} onCheckedChange={v=>void setPrefs({allowPoolDownload:v})} disabled={busy||!p}/></label>
+     </div>
+     <div className="grid items-end gap-2 @min-[530px]:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="min-w-0 space-y-1"><label htmlFor="pool-cap" className="block truncate text-[11px] muted">文件池容量（GiB）</label><div className="flex gap-1.5"><Input id="pool-cap" className="h-9 min-w-0" type="number" min={1} max={500} step={1} value={cap} onChange={e=>setCap(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')saveCapacity()}}/><Button size="sm" className="shrink-0" onClick={saveCapacity} disabled={busy}>应用</Button></div></div>
+      <div className="min-w-0 space-y-1"><p className="text-[11px] muted">同时上传</p><SelectField ariaLabel="上传任务并发" value={String(p?.maxUploads||2)} onValueChange={v=>void setPrefs({maxUploads:Number(v)})} options={[1,2,3,4].map(n=>({value:String(n),label:n+' 个'}))} className="h-9 w-full min-w-0"/></div>
+      <div className="min-w-0 space-y-1"><p className="text-[11px] muted">同时下载</p><SelectField ariaLabel="下载任务并发" value={String(p?.maxDownloads||4)} onValueChange={v=>void setPrefs({maxDownloads:Number(v)})} options={[1,2,4,6,8].map(n=>({value:String(n),label:n+' 个'}))} className="h-9 w-full min-w-0"/></div>
+     </div>
+     <div className="flex min-w-0 flex-wrap items-center gap-2 border-t border-[var(--border)] pt-2 text-[11px]">
+      <span className="shrink-0 muted">临时目录</span>
+      <span className="min-w-0 flex-1 truncate" title={p?.tempDirectory||'ToolDock 数据目录 / temp / file-transfer'}>{p?.tempDirectory||'默认数据目录 / temp / file-transfer'}</span>
+      <Button size="sm" variant="ghost" className="shrink-0" onClick={()=>void run(()=>window.toolDock.transfer.tempDirectory(),'临时目录已配置，下次启动生效')}>更改目录</Button>
+     </div>
+    </div>
+    <div className="flex justify-end @min-[740px]:border-l @min-[740px]:border-[var(--border)] @min-[740px]:pl-3">
+     <div className="flex w-[172px] shrink-0 flex-col items-center justify-center gap-2 rounded-xl bg-[var(--panel-alt)] px-3 py-2">
+      <p className="text-center text-[11px] font-semibold">扫码连接</p>
+      {snapshot?.running&&qr?<img src={qr} alt="文件快传连接二维码" className="h-[148px] w-[148px] rounded-lg bg-white p-1.5"/>:
+       <div className="flex h-[148px] w-[148px] flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--border)] bg-[var(--panel)] text-[11px] muted"><QrCode size={36}/><span>{snapshot?.running?'正在生成二维码':'启动后显示二维码'}</span></div>}
+      <p className="max-w-full truncate text-center text-[10px] muted" title={snapshot?.running?snapshot.url||'':''}>{snapshot?.running?'同一局域网扫码访问':'支持手机扫码连接'}</p>
+     </div>
+    </div>
    </div>
-   {showQr&&snapshot?.running&&<div className="flex flex-wrap items-center gap-4 rounded-xl bg-[var(--panel-alt)] p-3">
-    {qr?<img src={qr} alt="访问二维码" className="h-32 w-32 rounded-lg bg-white p-2"/>:<span className="text-xs muted">二维码生成中...</span>}
-    <div className="space-y-2"><p className="text-xs muted">扫描二维码或输入六位访问码连接</p><p className="font-mono text-xl font-bold tracking-[.2em]">{snapshot.pin}</p><Button size="sm" onClick={()=>void copy(snapshot.pin||'')}><Copy size={14}/>复制访问码</Button></div>
-   </div>}
-   {showSettings&&<div className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--panel-alt)] p-4">
-    <div className="grid gap-4 @min-[680px]:grid-cols-3">
-     <label className="flex items-center justify-between gap-3 text-xs">主设备路径共享下载 <SwitchField ariaLabel="主设备共享下载" checked={Boolean(p?.allowDownload)} onCheckedChange={v=>void setPrefs({allowDownload:v})} disabled={busy||!p}/></label>
-     <label className="flex items-center justify-between gap-3 text-xs">文件池允许上传 <SwitchField ariaLabel="文件池上传" checked={Boolean(p?.allowPoolUpload)} onCheckedChange={v=>void setPrefs({allowPoolUpload:v})} disabled={busy||!p}/></label>
-     <label className="flex items-center justify-between gap-3 text-xs">文件池允许下载 <SwitchField ariaLabel="文件池下载" checked={Boolean(p?.allowPoolDownload)} onCheckedChange={v=>void setPrefs({allowPoolDownload:v})} disabled={busy||!p}/></label>
-    </div>
-    <div className="grid items-end gap-3 @min-[680px]:grid-cols-3">
-     <div className="space-y-1"><label htmlFor="pool-cap" className="text-xs muted">文件池容量（GiB，1–500）</label><div className="flex gap-2"><Input id="pool-cap" type="number" min={1} max={500} step={1} value={cap} onChange={e=>setCap(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')saveCapacity()}}/><Button size="sm" onClick={saveCapacity} disabled={busy}>应用</Button></div></div>
-     <div className="space-y-1"><p className="text-xs muted">同时上传任务</p><SelectField ariaLabel="上传任务并发" value={String(p?.maxUploads||2)} onValueChange={v=>void setPrefs({maxUploads:Number(v)})} options={[1,2,3,4].map(n=>({value:String(n),label:n+' 个'}))}/></div>
-     <div className="space-y-1"><p className="text-xs muted">同时下载任务</p><SelectField ariaLabel="下载任务并发" value={String(p?.maxDownloads||4)} onValueChange={v=>void setPrefs({maxDownloads:Number(v)})} options={[1,2,4,6,8].map(n=>({value:String(n),label:n+' 个'}))}/></div>
-    </div>
-    <div className="flex flex-wrap items-center justify-between gap-2 text-xs"><span className="min-w-0 break-all muted">临时文件目录：{p?.tempDirectory||'ToolDock 数据目录 / temp / file-transfer（默认）'}</span><Button size="sm" onClick={()=>void run(()=>window.toolDock.transfer.tempDirectory(),'临时目录已配置，下次启动生效')}>选择目录</Button></div>
-    <p className="text-[11px] muted">仅在可信局域网使用，HTTP 未加密；新临时目录下次启动生效。文件池配额不包含超长消息临时文本，后者占用约 {human(snapshot?.pool.messageBytes||0)}。</p>
-   </div>}
+   <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--border)] pt-3 text-[11px]">
+    <span className="muted">文件池 <strong className="ml-1 font-semibold text-[var(--foreground)]">{human(usage)} / {human(quota)}</strong></span>
+    <div className="h-1.5 min-w-[90px] max-w-[230px] flex-1 overflow-hidden rounded-full bg-[var(--panel-alt)]"><div className="h-full rounded-full bg-indigo-500" style={{width:Math.min(100,usage/quota*100)+'%'}}/></div>
+    <span className="muted">消息 {snapshot?.pool.messageCount||0}/300</span>
+    <span className="muted">设备 {snapshot?.devices.length||0} 台</span>
+    <span className="muted" title="仅在可信局域网使用 HTTP">文字临时文件 {human(snapshot?.pool.messageBytes||0)}</span>
+   </div>
   </section>
   <section className={CARD+' space-y-4'}>
    <nav className="flex gap-1 overflow-x-auto border-b border-[var(--border)] pb-3" role="tablist" aria-label="快传业务">
