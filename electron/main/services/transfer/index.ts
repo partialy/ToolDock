@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {randomUUID,createHash} from 'node:crypto'
 import {pipeline} from 'node:stream/promises'
+import {Readable} from 'node:stream'
 import {EventEmitter} from 'node:events'
 import {app,dialog,type BrowserWindow,Notification} from 'electron'
 import * as yazl from 'yazl'
@@ -83,6 +84,7 @@ export class FileTransferService extends EventEmitter {
  messageChunk(id:string,offset=0){return this.messages.chunk(id,offset)}
  messageSearch(id:string,q:string){return this.messages.search(id,q)}
  messageText(id:string){return this.messages.text(id)}
+ async sendMessage(text:string){const chunks=(function*(){for(let i=0;i<text.length;i+=64*1024)yield Buffer.from(text.slice(i,i+64*1024))})();return this.messages.publish(Readable.from(chunks) as IncomingMessage,{deviceId:'host',deviceName:'主设备'})}
  async clearMessages(){await this.messages.clear()}
  async deleteMessages(ids:string[]){await this.messages.remove(ids)}
  private activeUploadBytes(){return [...this.uploads.values()].filter(u=>['uploading','paused'].includes(u.status)).reduce((n,u)=>n+u.size,0)}

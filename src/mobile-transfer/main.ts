@@ -1,11 +1,12 @@
 import './style.css'
 import {sha256} from '@noble/hashes/sha2.js'
+import {initPools} from './pools'
 import {bytesToHex} from '@noble/hashes/utils.js'
 
 type Share={id:string;name:string;size:number;kind:'file'|'directory';rootId?:string;status:'ready'|'changed'|'missing'}
 type Up={id:string;name:string;size:number;received:number;status:string}
 type Selection={key:string;file:File}
-type TransferJob={id:string;offset:number;file:File;row:HTMLElement;button:HTMLButtonElement;paused:boolean;cancelled:boolean;running:boolean;finished:boolean}
+type TransferJob={id:string;offset:number;file:File;relativeFolder:string;group:string;row:HTMLElement;button:HTMLButtonElement;paused:boolean;cancelled:boolean;running:boolean;finished:boolean}
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T
 const human=(n:number)=>n>=1024**3?(n/1024**3).toFixed(2)+' GiB':n>=1024**2?(n/1024**2).toFixed(1)+' MiB':n>=1024?(n/1024).toFixed(1)+' KiB':n+' B'
 const icon=(name:'file'|'download'|'upload'|'close'|'plus'|'check')=>{
@@ -20,7 +21,7 @@ const queued:TransferJob[]=[]
 let visibleShares:Share[]=[],rootShares:Share[]=[],crumbs:{id:string;name:string}[]=[],nextKey=0,active=0,uploadEnabled=false
 const knownShares=new Map<string,Share>()
 const err=(s:string)=>{$('error').textContent=s;$('error').hidden=!s}
-const label=(status:string)=>({uploading:'上传中',paused:'已暂停',pending:'等待电脑确认',accepted:'电脑已接收',rejected:'电脑已拒绝',failed:'失败',cancelled:'已取消'} as Record<string,string>)[status]||status
+const label=(status:string)=>({uploading:'上传中',paused:'已暂停',pending:'等待发布',accepted:'已进入文件池',rejected:'已取消',failed:'失败',cancelled:'已取消'} as Record<string,string>)[status]||status
 
 async function json(url:string,options:RequestInit={}):Promise<any>{
  const response=await fetch(url,{credentials:'same-origin',...options,headers:{'X-ToolDock-Request':'1',...(options.body?{'Content-Type':'application/json'}:{}),...options.headers}})
@@ -29,6 +30,11 @@ async function json(url:string,options:RequestInit={}):Promise<any>{
  return value
 }
 const post=(url:string,value:unknown)=>json(url,{method:'POST',body:JSON.stringify(value)})
+const pools=initPools(json,post,err)
+const cacheKey='tooldock-pool-resume-v1'
+function cacheRead():Record<string,{id:string;group:string;relativeFolder:string}>{try{return JSON.parse(sessionStorage.getItem(cacheKey)||'{}')}catch{return {}}}
+function cacheWrite(data:Record<string,{id:string;group:string;relativeFolder:string}>){try{sessionStorage.setItem(cacheKey,JSON.stringify(data))}catch{}}
+const signature=(file:File)=>file.name+'\0'+file.size+'\0'+file.lastModified+'\0'+(file.webkitRelativePath||'')
 const rowIcon=(filename:string)=>{
  const wrap=document.createElement('div')
  const dot=filename.lastIndexOf('.')
@@ -50,11 +56,12 @@ const button=(text:string,mode='normal')=>{
  const b=document.createElement('button');b.type='button';b.className='mini-button'+(mode==='remove'?' remove':'');b.setAttribute('aria-label',text);b.title=text
  return b
 }
-function currentPanel(mode:'download'|'upload'){
- const uploading=mode==='upload'
- $('panel-download').hidden=uploading;$('panel-upload').hidden=!uploading
- $('tab-download').classList.toggle('active',!uploading);$('tab-upload').classList.toggle('active',uploading)
- $('tab-download').setAttribute('aria-selected',String(!uploading));$('tab-upload').setAttribute('aria-selected',String(uploading))
+function currentPanel(mode:'pool'|'download'|'messages'){
+ $('panel-pool').hidden=mode!=='pool';$('panel-download').hidden=mode!=='download';$('panel-messages').hidden=mode!=='messages'
+ $('panel-upload').hidden=true
+ for(const t of ['pool','download','messages']){$('tab-'+t).classList.toggle('active',t===mode);$('tab-'+t).setAttribute('aria-selected',String(t===mode))}
+ if(mode==='pool')void pools.refreshPool().catch(e=>err(String(e)))
+ if(mode==='messages')void pools.refreshMessages().catch(e=>err(String(e)))
 }
  function renderDownloadSelection(){
  const matches=[...selectedDownload].map(id=>knownShares.get(id)).filter((s):s is Share=>Boolean(s&&s.status==='ready'))
@@ -175,10 +182,12 @@ async function login(kind:'pin'|'token',value:string){
  await post('/api/auth',{kind,value})
  history.replaceState(null,'',location.pathname)
  $('login').hidden=true;$('workspace').hidden=false;err('')
- await refresh()
+ await refresh();connectEvents()
 }
 async function refresh(){
  const status=await json('/api/status')
+ await pools.loadStatus(status)
+ await pools.refreshMessages()
  rootShares=status.downloadAllowed?status.shares as Share[]:[]
  rootShares.forEach(s=>knownShares.set(s.id,{...s,rootId:s.id}))
  const visibleBefore=new Set(visibleShares.map(s=>s.id))
@@ -190,7 +199,9 @@ async function refresh(){
  uploadEnabled=Boolean(status.uploadAllowed)
  $('choose').toggleAttribute('disabled',!uploadEnabled)
  $('pick-files').toggleAttribute('disabled',!uploadEnabled)
- $('upload-hint').textContent=uploadEnabled?'传输完成后，仍需要电脑端确认接收':'电脑暂未开启文件接收，请在电脑端选择保存目录并开启上传'
+ $('pick-folder').toggleAttribute('disabled',!uploadEnabled)
+ $('pool-fab').toggleAttribute('disabled',!uploadEnabled)
+ $('upload-hint').textContent=uploadEnabled?'传输完成后即进入共享文件池，所有设备都可下载':'主设备已关闭文件池上传权限'
  renderSelectedUploads()
  await syncUploads()
 }
@@ -203,7 +214,7 @@ async function syncUploads(){
   if(progress){progress.max=u.size;progress.value=u.received}
   const status=el.querySelector<HTMLElement>('.meta')
   if(status){
-   const suffix=u.status==='pending'?'文件上传完成，等待电脑点击确认接收':label(u.status)
+   const suffix=label(u.status)
    status.textContent=human(u.received)+' / '+human(u.size)+' · '+suffix
   }
  }
@@ -216,7 +227,10 @@ function runQueue(){
   void upload(job).finally(()=>{active--;runQueue()})
  }
 }
+function randomGroup(){const data=crypto.getRandomValues(new Uint8Array(16));data[6]=(data[6]&15)|64;data[8]=(data[8]&63)|128;const value=[...data].map(n=>n.toString(16).padStart(2,'0')).join('');return [value.slice(0,8),value.slice(8,12),value.slice(12,16),value.slice(16,20),value.slice(20)].join('-')}
 function enqueue(files:File[]){
+ const group=randomGroup()
+ const cached=cacheRead()
  for(const file of files){
   const row=document.createElement('div');row.className='entry'
   const {info,subtitle}=fileDetails(file.name,'等待发送 · '+human(file.size))
@@ -225,9 +239,11 @@ function enqueue(files:File[]){
   const cancel=button('取消 '+file.name,'remove');cancel.append(icon('close'))
   const actions=document.createElement('div');actions.className='actions';actions.append(pause,cancel)
   row.append(rowIcon(file.name),info,actions);$('uploads').prepend(row)
-  const job:TransferJob={id:'',offset:0,file,row,button:pause,paused:false,cancelled:false,running:false,finished:false}
+  const relativeFolder=(file.webkitRelativePath||'').split('/').slice(0,-1).join('/')
+  const previous=cached[signature(file)]
+  const job:TransferJob={id:previous?.id||'',offset:0,file,relativeFolder,group:previous?.group||group,row,button:pause,paused:false,cancelled:false,running:false,finished:false}
   pause.onclick=()=>{if(job.finished||job.cancelled)return;job.paused=!job.paused;pause.textContent=job.paused?'继续':'暂停';if(!job.paused&&!job.running){queued.push(job);runQueue()}}
-  cancel.onclick=()=>{job.cancelled=true;job.paused=true;row.remove();if(!job.running&&job.id)void json('/api/uploads/'+job.id,{method:'DELETE'}).catch(e=>err(String(e)))}
+  cancel.onclick=()=>{job.cancelled=true;job.paused=true;row.remove();const data=cacheRead();delete data[signature(job.file)];cacheWrite(data);if(!job.running&&job.id)void json('/api/uploads/'+job.id,{method:'DELETE'}).catch(e=>err(String(e)))}
   queued.push(job);subtitle.textContent='已加入发送队列 · '+human(file.size)
  }
  runQueue()
@@ -240,12 +256,14 @@ async function upload(job:TransferJob){
  const bar=row.querySelector('progress')!
  try{
   if(!job.id){
-   const created=await post('/api/uploads',{name:file.name,size:file.size})
+   const created=await post('/api/uploads',{name:file.name,size:file.size,relativeFolder:job.relativeFolder,group:job.group})
    job.id=created.id;jobs.set(job.id,job)
+   const data=cacheRead();data[signature(file)]={id:job.id,group:job.group,relativeFolder:job.relativeFolder};cacheWrite(data)
    row.dataset.uploadId=job.id
   }else{
-   const state=await json('/api/uploads/'+job.id)
-   job.offset=state.offset
+   try{const state=await json('/api/uploads/'+job.id);job.offset=state.offset;if(state.status==='accepted'){job.finished=true;return}}
+   catch{const created=await post('/api/uploads',{name:file.name,size:file.size,relativeFolder:job.relativeFolder,group:job.group});job.id=created.id;job.offset=0;const data=cacheRead();data[signature(file)]={id:job.id,group:job.group,relativeFolder:job.relativeFolder};cacheWrite(data)}
+   jobs.set(job.id,job)
   }
   while(job.offset<file.size&&!job.paused&&!job.cancelled){
    const bytes=new Uint8Array(await file.slice(job.offset,Math.min(job.offset+4*1024**2,file.size)).arrayBuffer())
@@ -262,8 +280,10 @@ async function upload(job:TransferJob){
   }
   if(job.offset===file.size&&!job.cancelled){
    await post('/api/uploads/'+job.id+'/complete',{})
-   job.finished=true;meta.textContent='文件上传完成，等待电脑点击确认接收'
-   pause.disabled=true;pause.textContent='等待确认'
+   job.finished=true;meta.textContent='已进入共享文件池'
+   pause.disabled=true;pause.textContent='已完成'
+   const data=cacheRead();delete data[signature(file)];cacheWrite(data)
+   pools.scheduleRefresh()
   }else if(!job.cancelled)meta.textContent=human(job.offset)+' / '+human(file.size)+' · 已暂停'
  }catch(e){
   if(!job.cancelled){job.paused=true;pause.textContent='继续';meta.textContent='发送中断，可点击继续';err('发送 '+file.name+' 失败：'+String(e))}
@@ -274,7 +294,10 @@ async function upload(job:TransferJob){
 }
 $<HTMLAnchorElement>('download-selected').addEventListener('click',e=>{const selected=[...selectedDownload].map(id=>knownShares.get(id)).filter((x):x is Share=>Boolean(x));if(selected.length===1&&selected[0].kind==='file')return;e.preventDefault();if(selected.length)void downloadArchive(selected.map(x=>x.id)).catch(e=>err(String(e)))})
 $('tab-download').addEventListener('click',()=>currentPanel('download'))
-$('tab-upload').addEventListener('click',()=>currentPanel('upload'))
+$('tab-pool').addEventListener('click',()=>currentPanel('pool'))
+$('tab-messages').addEventListener('click',()=>currentPanel('messages'))
+$('pool-fab').addEventListener('click',()=>{$('panel-upload').hidden=false})
+$('upload-close').addEventListener('click',()=>{$('panel-upload').hidden=true})
 $('login-form').addEventListener('submit',e=>{e.preventDefault();void login('pin',($<HTMLInputElement>('pin')).value).catch(e=>err(String(e)))})
 $('refresh').addEventListener('click',()=>void refresh().catch(e=>err(String(e))))
 $('select-all').addEventListener('click',()=>{
@@ -285,6 +308,8 @@ $('select-all').addEventListener('click',()=>{
  renderShares()
 })
  $('pick-files').addEventListener('click',()=>{if(uploadEnabled)$<HTMLInputElement>('choose').click()})
+$('pick-folder').addEventListener('click',()=>{if(uploadEnabled)$<HTMLInputElement>('choose-folder').click()})
+$('choose-folder').addEventListener('change',()=>{const input=$<HTMLInputElement>('choose-folder');addFiles([...(input.files||[])]);input.value=''})
 $('choose').addEventListener('change',()=>{
  const input=$<HTMLInputElement>('choose')
  addFiles([...(input.files||[])])
@@ -298,5 +323,14 @@ $('upload').addEventListener('click',()=>{
 })
 const fragment=new URLSearchParams(location.hash.slice(1)).get('token')
 if(fragment)void login('token',fragment).catch(e=>{err(String(e));history.replaceState(null,'',location.pathname)})
-else void json('/api/status').then(()=>{$('login').hidden=true;$('workspace').hidden=false;return refresh()}).catch(()=>{})
-setInterval(()=>{if(!$('workspace').hidden)void syncUploads().catch(()=>{})},3000)
+else void json('/api/status').then(()=>{$('login').hidden=true;$('workspace').hidden=false;return refresh().then(()=>connectEvents())}).catch(()=>{})
+let live:EventSource|null=null
+function connectEvents(){
+ if(live)return
+ live=new EventSource('/api/events')
+ live.addEventListener('change',()=>{pools.scheduleRefresh();void refresh().catch(()=>{})})
+ live.addEventListener('connected',()=>{$('connection-status').textContent='已连接主设备'})
+ live.onerror=()=>{$('connection-status').textContent='连接中断，正在重连...'}
+}
+setInterval(()=>{if(!$('workspace').hidden){void syncUploads().catch(()=>{});if(!live)connectEvents()}},3000)
+setInterval(()=>{if(!$('workspace').hidden)void refresh().catch(()=>{})},15000)

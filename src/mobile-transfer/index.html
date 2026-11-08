@@ -17,31 +17,64 @@
 <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16"/></symbol>
 <symbol id="i-check" viewBox="0 0 24 24"><path d="m4 12 5 5L20 6"/></symbol>
 <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2 8a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M9 16a5 5 0 0 1 6 0M12 20h.01"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></symbol>
 </svg>
 <main class="app">
 <section id="login" class="login-page">
  <div class="login-visual"><div class="login-visual-inner"><svg><use href="#i-transfer"/></svg></div></div>
- <h2>连接到你的电脑</h2>
- <p class="helper">使用电脑端显示的 6 位访问码建立连接，或直接扫描电脑屏幕上的二维码。</p>
+ <h2>连接 ToolDock</h2>
+ <p class="helper">与主设备在同一局域网内，输入六位访问码或者扫描二维码即可连接共享文件池。</p>
  <form id="login-form"><label class="field-label" for="pin">连接访问码</label><input id="pin" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="输入 6 位数字" required><button class="action-primary" type="submit">连接电脑 <svg><use href="#i-transfer"/></svg></button></form>
 </section>
 <div id="workspace" hidden>
- <nav class="tabbar" aria-label="文件快传模式"><button type="button" id="tab-download" class="tab active" aria-selected="true"><svg><use href="#i-download"/></svg> 接收文件</button><button type="button" id="tab-upload" class="tab" aria-selected="false"><svg><use href="#i-upload"/></svg> 发送到电脑</button></nav>
- <div id="panel-download" class="pane">
-  <div class="section-heading"><div><h2>共享文件 <span id="share-count" class="count">0</span></h2><p>选择文件，单独下载或一次打包接收</p></div><button type="button" id="refresh" class="icon-button" aria-label="刷新共享文件" title="刷新"><svg><use href="#i-refresh"/></svg></button></div>
+ <header class="mobile-header"><div><strong>文件快传</strong><span id="connection-status">已连接主设备</span></div><button id="edit-device" class="mini-button" type="button">设备名称</button></header>
+ <div id="device-editor" class="device-editor" hidden><input id="device-name" maxlength="40" placeholder="为本设备命名"><button id="save-device" type="button" class="mini-button">保存</button></div>
+ <nav class="tabbar" aria-label="文件快传模式">
+  <button type="button" id="tab-pool" class="tab active" aria-selected="true">文件池 <span id="pool-count" class="count">0</span></button>
+  <button type="button" id="tab-download" class="tab" aria-selected="false">主设备共享</button>
+  <button type="button" id="tab-messages" class="tab" aria-selected="false">消息池 <span id="messages-count" class="count">0</span></button>
+ </nav>
+ <div id="panel-pool" class="pane">
+  <div class="usage"><div><strong>共享文件池</strong><small id="pool-usage">0 B / 20 GiB</small></div><div class="usage-track"><div id="pool-progress"></div></div></div>
+  <div class="section-heading"><div><h2>所有设备共享</h2><p>上传后立即共享，主设备关闭快传时自动清理</p></div><button id="pool-refresh" type="button" class="icon-button" aria-label="刷新文件池"><svg><use href="#i-refresh"/></svg></button></div>
+  <div class="pool-filters"><input id="pool-search" type="search" placeholder="搜索文件或上传设备..." aria-label="文件池搜索"><select id="pool-sort" aria-label="文件池排序"><option value="newest">最新上传</option><option value="oldest">最早上传</option><option value="name">名称</option><option value="size">大小</option></select></div>
+  <nav id="pool-breadcrumbs" class="breadcrumbs" aria-label="文件池目录"></nav>
+  <div class="selection-bar"><button id="pool-select-all" type="button" class="text-button">全选当前页</button><span id="pool-selected-count">尚未选择</span></div>
+  <div id="pool-files" class="file-list"></div>
+  <div class="more-holder"><button id="pool-more" type="button" class="mini-button" hidden>加载更多</button></div>
+  <div class="action-area pool-actions"><button id="pool-download-selected" class="action-primary" type="button" disabled><svg><use href="#i-download"/></svg>下载所选</button><button id="pool-download-all" class="action-secondary" type="button"><svg><use href="#i-download"/></svg>打包全部</button></div>
+  <button id="pool-fab" type="button" class="upload-fab" aria-label="上传文件" title="上传文件"><svg><use href="#i-upload"/></svg></button>
+ </div>
+ <div id="panel-download" class="pane" hidden>
+  <div class="section-heading"><div><h2>主设备共享 <span id="share-count" class="count">0</span></h2><p>直接读取主设备分享的文件和文件夹，不占文件池容量</p></div><button type="button" id="refresh" class="icon-button" aria-label="刷新共享文件" title="刷新"><svg><use href="#i-refresh"/></svg></button></div>
   <nav id="breadcrumbs" class="breadcrumbs" aria-label="当前目录"></nav>
   <div class="selection-bar"><button id="select-all" class="text-button" type="button">全选文件</button><span id="selection-summary">尚未选择文件</span></div>
   <div id="shares" class="file-list"></div>
   <div id="download-selection" class="selected-area" hidden><div class="selection-title">已选文件 <span id="selected-download-count"></span></div><div id="download-selected-list" class="selection-chips"></div></div>
   <div class="action-area"><a id="download-selected" class="action-primary" role="button" aria-disabled="true" tabindex="-1"><svg><use href="#i-download"/></svg><span>下载所选文件</span></a><a id="download-all" class="action-secondary" href="/api/zip"><svg><use href="#i-download"/></svg> 下载全部 ZIP</a></div>
  </div>
- <div id="panel-upload" class="pane" hidden>
-  <div class="section-heading"><div><h2>发送到电脑</h2><p id="upload-hint">传输完成后，仍需要电脑端确认接收</p></div><button type="button" id="pick-files" class="mini-button choose-button"><svg><use href="#i-plus"/></svg>选择文件</button></div>
-  <input id="choose" class="sr-file-input" type="file" multiple aria-label="选择上传文件">
-  <div id="upload-selection" class="selected-area" hidden><div class="section-heading compact"><div><h3>待发送文件 <span id="selected-upload-count" class="count">0</span></h3><p id="upload-total"></p></div><button type="button" id="clear-selected" class="text-button danger">清空</button></div><div id="selected-upload-list" class="file-list"></div></div>
-  <div id="uploads" class="file-list upload-progress-list"></div>
-  <div class="action-area"><button type="button" id="upload" class="action-primary" disabled><svg><use href="#i-upload"/></svg> 发送文件</button></div>
+ <div id="panel-messages" class="pane messages-pane" hidden>
+  <div class="section-heading"><div><h2>文字消息池</h2><p>所有设备共享 · 300 条 · 超过 2000 字符自动转 TXT</p></div><button id="messages-refresh" type="button" class="icon-button" aria-label="刷新消息"><svg><use href="#i-refresh"/></svg></button></div>
+  <div id="messages-list" class="messages-list"></div>
+  <div class="message-composer"><textarea id="message-input" rows="3" aria-label="输入消息" placeholder="输入或粘贴文本，支持多行..."></textarea><button id="message-send" type="button" class="action-primary">发送</button></div>
  </div>
+ <section id="panel-upload" class="upload-drawer" hidden>
+  <div class="drawer-heading"><h3>上传到文件池</h3><button id="upload-close" class="icon-button" type="button" aria-label="关闭上传队列"><svg><use href="#i-close"/></svg></button></div>
+  <p id="upload-hint" class="helper">文件传输完成后即进入所有设备共享的文件池</p>
+  <div class="upload-pickers"><button type="button" id="pick-files" class="mini-button choose-button"><svg><use href="#i-plus"/></svg>选择文件</button><button type="button" id="pick-folder" class="mini-button choose-button">选择文件夹</button></div>
+  <input id="choose" class="sr-file-input" type="file" multiple aria-label="选择上传文件">
+  <input id="choose-folder" class="sr-file-input" type="file" multiple webkitdirectory directory aria-label="选择上传文件夹">
+  <div id="upload-selection" class="selected-area" hidden><div class="section-heading compact"><div><h3>待上传文件 <span id="selected-upload-count" class="count">0</span></h3><p id="upload-total"></p></div><button type="button" id="clear-selected" class="text-button danger">清空</button></div><div id="selected-upload-list" class="file-list"></div></div>
+  <div id="uploads" class="file-list upload-progress-list"></div>
+  <div class="action-area"><button type="button" id="upload" class="action-primary" disabled><svg><use href="#i-upload"/></svg> 上传到文件池</button></div>
+ </section>
+ <section id="text-viewer" class="text-viewer" hidden>
+  <div class="drawer-heading"><h3>临时文本查看器</h3><button id="viewer-close" type="button" class="icon-button" aria-label="关闭"><svg><use href="#i-close"/></svg></button></div>
+  <p id="viewer-info" class="helper"></p>
+  <div class="pool-filters"><input id="viewer-search" type="search" placeholder="在全文中搜索..."><button id="viewer-find" type="button" class="mini-button">搜索</button></div>
+  <div id="viewer-hits" class="viewer-hits"></div><pre id="viewer-content" class="viewer-content"></pre>
+  <div class="viewer-controls"><button id="viewer-prev" type="button" class="mini-button">上一段</button><button id="viewer-next" type="button" class="mini-button">下一段</button><button id="viewer-copy" type="button" class="mini-button">复制全文</button><a id="viewer-download" class="mini-button" download>下载 TXT</a></div>
+ </section>
 </div>
 <div id="error" class="error-banner" role="alert" hidden></div>
 </main>
