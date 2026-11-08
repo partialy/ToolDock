@@ -5,7 +5,7 @@ import type {BrowserWindow} from 'electron'
 import {getDb,getDataRoot} from '../../database/store'
 import {scanSources} from '../media/media-files'
 import {audioEditSchema,audioExportOptionsSchema,canonicalKept,hasCuts,type AudioProject,type AudioEdit,type AudioExportJob,type AudioExportOptions,type AudioPreferences,type AudioStatus} from '../../../../src/shared/audioEditingModels'
-import {assertSourceUnchanged,getProjectStream,probeAudioSource,validAudioBaseName} from './audio-source'
+import {assertSourceUnchanged,fileIdentity,getProjectStream,probeAudioSource,validAudioBaseName} from './audio-source'
 import {audioExtension,validateAudioExport} from './audio-filtergraph'
 import {renderAudioExport} from './audio-export-service'
 import {AudioPreviewService} from './audio-preview-service'
@@ -124,6 +124,29 @@ export class AudioEditingService{
   this.jobs=this.jobs.filter(j=>!selected.has(j.projectId));this.projects=this.projects.filter(p=>!selected.has(p.id))
   this.previewer.invalidate([...selected]);this.changed()
  }
+ async removeHistory(ids:string[],deleteFiles:boolean){
+  this.assertAvailable()
+  const selected=[...new Set(ids)].map(id=>this.getJob(id))
+  if(selected.some(job=>job.state==='queued'||job.state==='running'))throw Error('无法清理正在导出的任务')
+  if(deleteFiles){
+   // 默认只清理记录；明确要求删文件时也必须再次验证输出身份，禁止删源文件。
+   const targets:string[]=[]
+   for(const job of selected){
+    if(!job.outputPath||job.state!=='completed')continue
+    if(path.resolve(job.outputPath).toLowerCase()===path.resolve(job.source.path).toLowerCase())throw Error('不能删除原始音频')
+    const stat=await fs.lstat(job.outputPath).catch(()=>null)
+    if(!stat)continue
+    if(!stat.isFile()||stat.isSymbolicLink()||!job.outputSignature)throw Error('输出文件身份无法验证，不允许自动删除')
+    const now=await fileIdentity(job.outputPath)
+    if(now.signature!==job.outputSignature)throw Error('输出文件已被修改或替换，请手动处理：'+path.basename(job.outputPath))
+    targets.push(job.outputPath)
+   }
+   for(const target of targets)await fs.unlink(target)
+  }
+  const names=new Set(selected.map(j=>j.id))
+  getDb().transaction(()=>{for(const job of selected)getDb().prepare('DELETE FROM audio_export_jobs WHERE id=?').run(job.id)})()
+  this.jobs=this.jobs.filter(j=>!names.has(j.id));this.changed()
+ }
  setPreferences(patch:Partial<AudioPreferences>){
   this.assertAvailable()
   const allowed=Object.keys(patch).every(k=>k==='cacheLimitBytes'||k==='outputDirectory')
@@ -185,7 +208,7 @@ export class AudioEditingService{
  private async runExport(job:AudioExportJob,controller:AbortController){
   try{
    const result=await renderAudioExport(job,controller.signal,value=>{job.percent=value;this.changed()})
-   job.state='completed';job.percent=100;job.outputPath=result.path;job.size=result.size
+   job.state='completed';job.percent=100;job.outputPath=result.path;job.size=result.size;job.outputSignature=result.outputSignature
   }catch(e){job.state=controller.signal.aborted?'cancelled':'failed';job.error=e instanceof Error?e.message:'导出失败'}
   finally{job.finishedAt=Date.now();this.controllers.delete(job.id);this.persistJob(job);this.trim();this.changed()}
  }

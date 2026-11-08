@@ -22,6 +22,7 @@ export function registerAudioEditingIpc(register:(channel:string,fn:(value:any)=
  })
  register('audio:save',(v:unknown)=>{const x=z.strictObject({id,revision:z.number().int().positive(),edit:audioEditSchema,outputName:z.string().max(180)}).parse(v);return service.save(x.id,x.revision,x.edit,x.outputName)})
  register('audio:remove',(v:unknown)=>service.remove(ids.parse(v)))
+ register('audio:removeHistory',(v:unknown)=>{const x=z.strictObject({ids,deleteFiles:z.boolean()}).parse(v);return service.removeHistory(x.ids,x.deleteFiles)})
  register('audio:setPreferences',(v:unknown)=>{const x=z.strictObject({cacheLimitBytes:z.number().int().optional(),outputDirectory:z.string().max(4096).optional()}).parse(v);return service.setPreferences(x)})
  register('audio:chooseDirectory',async()=>{const result=await dialog.showOpenDialog(window(),{properties:['openDirectory']});return result.canceled?null:result.filePaths[0]||null})
  register('audio:peaks',(v:unknown)=>{const x=z.strictObject({id,startUs:z.number().int().nonnegative(),endUs:z.number().int().positive(),count:z.number().int().min(40).max(4096)}).parse(v);return service.peaks(x.id,x.startUs,x.endUs,x.count)})

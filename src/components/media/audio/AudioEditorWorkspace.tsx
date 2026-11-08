@@ -1,4 +1,4 @@
-import {useCallback,useEffect,useRef,useState} from 'react'
+import {useCallback,useEffect,useMemo,useRef,useState} from 'react'
 import {ArrowLeft,Download,Pause,Play,Redo2,Scissors,Undo2,ZoomIn,ZoomOut} from 'lucide-react'
 import {Button} from '@/components/ui/button'
 import {SelectField} from '@/components/ui/select-field'
@@ -9,7 +9,6 @@ import {canonicalKept,estimatedDurationUs,keepInterval,subtractInterval,type Aud
 import type {MediaPreferences} from '@/shared/mediaModels'
 import {deletedRanges,formatAudioTime,parseAudioTime,toOriginalTime,toOutputTime} from '@/lib/audio-editing/time'
 
-const empty=()=>({startUs:0,endUs:0})
 export function AudioEditorWorkspace({project,prefs,directory,onBack,onUpdated}:{
  project:AudioProject;prefs:MediaPreferences;directory:string;onBack:()=>void;onUpdated:()=>void
 }){
@@ -92,7 +91,7 @@ export function AudioEditorWorkspace({project,prefs,directory,onBack,onUpdated}:
   if(element&&audioUrl)element.currentTime=(playback==='original'?us:toOutputTime(us,edit))/1e6
  }
  const listen=async(mode:'original'|'edited')=>{
-  if(mode!==playback){setPlayback(mode);setAudioUrl('')}
+  if(mode!==playback){setPlayback(mode);setAudioUrl('');if(mode==='edited'){setZoom(1);setViewStartUs(0)}}
   setPreviewBusy(true)
   try{const url=await window.toolDock.audio.preview(project.id,mode==='edited');setAudioUrl(url)}
   catch(e){msg.warning(e)}finally{setPreviewBusy(false)}
@@ -103,16 +102,30 @@ export function AudioEditorWorkspace({project,prefs,directory,onBack,onUpdated}:
  const selected=(r:AudioRange)=>{
   setSelection(r);setStartText(formatAudioTime(r.startUs));setEndText(formatAudioTime(r.endUs))
  }
- const handleKeys=(e:React.KeyboardEvent<HTMLDivElement>)=>{
-  if(e.target instanceof HTMLInputElement||e.target instanceof HTMLTextAreaElement||e.target instanceof HTMLButtonElement||e.target instanceof HTMLSelectElement)return
+ const keyboardHandler=useRef<(e:KeyboardEvent)=>void>(()=>{})
+ keyboardHandler.current=(e:KeyboardEvent)=>{
+  if(exportOpen||e.altKey||e.metaKey||e.target instanceof Element&&e.target.closest('input,textarea,select,button,[contenteditable="true"]'))return
   if(e.ctrlKey&&e.key.toLowerCase()==='z'){e.preventDefault();undoAction()}
   else if(e.ctrlKey&&e.key.toLowerCase()==='y'){e.preventDefault();redoAction()}
-  else if(e.key==='Delete'){e.preventDefault();applySelection('delete')}
-  else if(e.key===' '){e.preventDefault();const player=audioRef.current;if(player){if(player.paused)void player.play().catch(()=>{});else player.pause()}}
-  else if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();seek(Math.max(0,Math.min(durationUs,playhead+(e.key==='ArrowLeft'?-100000:100000))))}
+  else if(!e.ctrlKey&&e.key==='Delete'){e.preventDefault();applySelection('delete')}
+  else if(!e.ctrlKey&&e.key===' '){e.preventDefault();const player=audioRef.current;if(player){if(player.paused)void player.play().catch(()=>{});else player.pause()}}
+  else if(!e.ctrlKey&&(e.key==='ArrowLeft'||e.key==='ArrowRight')){e.preventDefault();seek(Math.max(0,Math.min(durationUs,playhead+(e.key==='ArrowLeft'?-100000:100000))))}
  }
+ useEffect(()=>{
+  const handler=(event:KeyboardEvent)=>keyboardHandler.current(event)
+  window.addEventListener('keydown',handler)
+  return()=>window.removeEventListener('keydown',handler)
+ },[])
  const estimated=estimatedDurationUs(edit)
- return <div className="space-y-5" onKeyDown={handleKeys} tabIndex={-1}>
+ const finishedPeaks=useMemo(()=>{
+  if(!peaks.length||!estimated||zoom!==1)return[]
+  return Array.from({length:Math.min(600,peaks.length)},(_,i)=>{
+   const outputUs=(i+.5)*estimated/Math.min(600,peaks.length)
+   const origin=toOriginalTime(outputUs,edit)
+   return peaks[Math.min(peaks.length-1,Math.max(0,Math.floor(origin/durationUs*peaks.length)))]||0
+  })
+ },[peaks,edit,estimated,durationUs,zoom])
+ return <div className="space-y-5">
   <div className="flex flex-wrap items-center gap-3">
    <Button onClick={()=>void close()}><ArrowLeft size={16}/>返回工程列表</Button>
    <div className="min-w-0 flex-1"><h2 className="truncate text-base font-semibold">{project.displayName}</h2><p className="text-xs muted">音轨 {stream.index} · {stream.codec} · {(stream.sampleRate/1000).toFixed(1)}kHz · {stream.channels} 声道</p></div>
@@ -124,15 +137,20 @@ export function AudioEditorWorkspace({project,prefs,directory,onBack,onUpdated}:
     <span className="muted">原始时长 {formatAudioTime(durationUs)} · 删除 {formatAudioTime(durationUs-edit.kept.reduce((n,r)=>n+r.endUs-r.startUs,0))}</span>
     <strong>预计输出 {formatAudioTime(estimated)}</strong>
    </div>
-   <AudioWaveformTimeline points={peaks} durationUs={durationUs} kept={edit.kept} selection={selection} playheadUs={playhead} zoom={zoom} viewStartUs={viewStartUs}
-    onSelect={selected} onSeek={seek} onZoom={v=>{setZoom(v);setViewStartUs(0)}}/>
+   <p className="text-xs muted">当前时间轴：{playback==='original'?'原始音轨 · 支持选择和删除':'剪辑成品 · 只读预览，切回原始试听可继续选择片段'}</p>
+   <AudioWaveformTimeline points={playback==='original'?peaks:finishedPeaks} durationUs={playback==='original'?durationUs:estimated}
+    kept={playback==='original'?edit.kept:[{startUs:0,endUs:estimated}]}
+    selection={playback==='original'?selection:null} playheadUs={playback==='original'?playhead:toOutputTime(playhead,edit)}
+    zoom={playback==='original'?zoom:1} viewStartUs={playback==='original'?viewStartUs:0}
+    onSelect={playback==='original'?selected:()=>{}} onSeek={us=>seek(playback==='original'?us:toOriginalTime(us,edit))}
+    onZoom={v=>{if(playback==='original'){setZoom(v);setViewStartUs(0)}}}/>
    {peakState&&<p className="text-xs muted">{peakState}</p>}
    <div className="flex flex-wrap items-center gap-3">
-    <Button size="sm" disabled={zoom<=1} onClick={()=>{setZoom(x=>Math.max(1,x/2));setViewStartUs(0)}}><ZoomOut size={15}/></Button>
+    <Button size="sm" disabled={playback==='edited'||zoom<=1} onClick={()=>{setZoom(x=>Math.max(1,x/2));setViewStartUs(0)}}><ZoomOut size={15}/></Button>
     <span className="text-xs muted">{zoom.toFixed(0)}×</span>
-    <Button size="sm" disabled={zoom>=32} onClick={()=>setZoom(x=>Math.min(32,x*2))}><ZoomIn size={15}/></Button>
+    <Button size="sm" disabled={playback==='edited'||zoom>=32} onClick={()=>setZoom(x=>Math.min(32,x*2))}><ZoomIn size={15}/></Button>
     <input aria-label="波形时间轴滚动" type="range" min={0} max={Math.max(0,Math.round(durationUs-durationUs/zoom))} step={10000} value={viewStartUs}
-     disabled={zoom===1} onChange={e=>setViewStartUs(Number(e.target.value))} className="min-w-24 flex-1 accent-indigo-500"/>
+     disabled={playback==='edited'||zoom===1} onChange={e=>setViewStartUs(Number(e.target.value))} className="min-w-24 flex-1 accent-indigo-500"/>
     <Button size="sm" onClick={undoAction} disabled={!undo.length}><Undo2 size={15}/>撤销</Button>
     <Button size="sm" onClick={redoAction} disabled={!redo.length}><Redo2 size={15}/>重做</Button>
    </div>
@@ -158,7 +176,10 @@ export function AudioEditorWorkspace({project,prefs,directory,onBack,onUpdated}:
    </div>
    <div className="space-y-2"><p className="text-xs muted">已删除区间（点击定位）</p>
     {deletedRanges(edit.kept,durationUs).length===0?<p className="text-xs muted">当前保留完整音轨</p>:
-    deletedRanges(edit.kept,durationUs).map((r,i)=><button key={i} onClick={()=>{selected(r);seek(r.startUs)}} className="mr-2 mb-2 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">{formatAudioTime(r.startUs)} — {formatAudioTime(r.endUs)}</button>)}
+    deletedRanges(edit.kept,durationUs).map((r,i)=><div key={i} className="mr-2 mb-2 inline-flex items-center gap-1 rounded-lg bg-red-500/10 px-2 py-1 text-xs text-red-400">
+     <button className="px-1 py-1" onClick={()=>{selected(r);seek(r.startUs)}} title="选中并定位删除区间">{formatAudioTime(r.startUs)} — {formatAudioTime(r.endUs)}</button>
+     <Button size="sm" variant="ghost" onClick={()=>{try{update({...edit,kept:canonicalKept([...edit.kept,r],durationUs)});setSelection(null)}catch(e){msg.error(e)}}}>恢复</Button>
+    </div>)}
    </div>
   </section>
   <section className="grid grid-cols-1 gap-4 rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 sm:grid-cols-2">

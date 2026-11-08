@@ -21,7 +21,7 @@ const api={
   status:()=>invoke('audio:status'),chooseFiles:()=>invoke('audio:chooseFiles'),chooseDirectory:()=>invoke('audio:chooseDirectory'),addSources:(paths:string[])=>invoke('audio:add',paths),
   copy:(id:string)=>invoke('audio:copy',id),addTrack:(id:string,index:number)=>invoke('audio:addTrack',{id,index}),relink:(id:string)=>invoke('audio:relink',id),
   save:(id:string,revision:number,edit:unknown,outputName:string)=>invoke('audio:save',{id,revision,edit,outputName}),
-  remove:(ids:string[])=>invoke('audio:remove',ids),setPreferences:(patch:unknown)=>invoke('audio:setPreferences',patch),
+  remove:(ids:string[])=>invoke('audio:remove',ids),removeHistory:(ids:string[],deleteFiles:boolean)=>invoke('audio:removeHistory',{ids,deleteFiles}),setPreferences:(patch:unknown)=>invoke('audio:setPreferences',patch),
   peaks:(id:string,startUs:number,endUs:number,count:number)=>invoke('audio:peaks',{id,startUs,endUs,count}),preview:(id:string,edited:boolean)=>invoke('audio:preview',{id,edited}),
   export:(ids:string[],options:unknown)=>invoke('audio:export',{ids,options}),retry:(id:string)=>invoke('audio:retry',id),cancel:(id:string)=>invoke('audio:cancel',id),open:(id:string)=>invoke('audio:open',id),
   onChange:(cb:()=>void)=>{const fn=()=>cb();ipcRenderer.on('audio:changed',fn);return()=>ipcRenderer.off('audio:changed',fn)}

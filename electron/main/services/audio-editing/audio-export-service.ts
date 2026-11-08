@@ -5,7 +5,7 @@ import type {AudioExportJob,AudioExportOptions} from '../../../../src/shared/aud
 import {estimatedDurationUs} from '../../../../src/shared/audioEditingModels'
 import {ffmpegBinaries} from '../media/engines'
 import {runProcess} from '../media/process'
-import {probeAudioSource,assertSourceUnchanged,validAudioBaseName} from './audio-source'
+import {fileIdentity,assertSourceUnchanged,validAudioBaseName} from './audio-source'
 import {audioExtension,audioGraph,outputCodecArgs,validateAudioExport} from './audio-filtergraph'
 
 function parseLoudness(stderr:string){
@@ -74,6 +74,7 @@ export async function renderAudioExport(job:AudioExportJob,signal:AbortSignal,on
   const intended=expected/1e6
   if(realDuration<=0||Math.abs(realDuration-intended)>Math.max(.5,intended*.06))throw Error('输出时长校验失败，请检查源音轨时间信息')
   await assertSourceUnchanged(job.source)
-  return {path:await exclusiveOutput(temp,directory,options.name,extension,signal),size:stat.size}
+  const outputSignature=(await fileIdentity(temp)).signature
+  return {path:await exclusiveOutput(temp,directory,options.name,extension,signal),size:stat.size,outputSignature}
  }finally{await fs.rm(temp,{force:true}).catch(()=>{})}
 }

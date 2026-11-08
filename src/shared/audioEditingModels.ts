@@ -24,14 +24,14 @@ export interface AudioStream {index:number;codec:string;sampleRate:number;channe
 export interface AudioSource {path:string;name:string;type:'video'|'audio';size:number;mtimeMs:number;signature:string;streams:AudioStream[]}
 export interface AudioProject {id:string;source:AudioSource;streamIndex:number;edit:AudioEdit;revision:number;displayName:string;outputName:string;createdAt:number;updatedAt:number;lastOpenedAt:number}
 export type AudioJobState='queued'|'running'|'completed'|'failed'|'cancelled'|'interrupted'
-export interface AudioExportJob {id:string;projectId:string;projectName:string;revision:number;edit:AudioEdit;stream:AudioStream;source:AudioSource;options:AudioExportOptions;state:AudioJobState;percent:number;error:string;outputPath:string;size:number;createdAt:number;startedAt?:number;finishedAt?:number}
+export interface AudioExportJob {id:string;projectId:string;projectName:string;revision:number;edit:AudioEdit;stream:AudioStream;source:AudioSource;options:AudioExportOptions;state:AudioJobState;percent:number;error:string;outputPath:string;size:number;outputSignature?:string;createdAt:number;startedAt?:number;finishedAt?:number}
 export interface AudioPreferences {cacheLimitBytes:number;outputDirectory:string}
 export interface AudioStatus {projects:AudioProject[];jobs:AudioExportJob[];busy:boolean;preferences:AudioPreferences}
 export interface AudioPeaks {points:number[];durationUs:number}
 export interface AudioAPI {
  status():Promise<AudioStatus>;chooseFiles():Promise<string[]>;chooseDirectory():Promise<string|null>;addSources(paths:string[]):Promise<{added:number;reused:number;skipped:{path:string;reason:string}[]}>;
  copy(id:string):Promise<AudioProject>;addTrack(id:string,index:number):Promise<AudioProject>;relink(id:string):Promise<AudioProject|null>;save(id:string,revision:number,edit:AudioEdit,outputName:string):Promise<AudioProject>;
- remove(ids:string[]):Promise<void>;setPreferences(patch:Partial<AudioPreferences>):Promise<void>;
+ remove(ids:string[]):Promise<void>;removeHistory(ids:string[],deleteFiles:boolean):Promise<void>;setPreferences(patch:Partial<AudioPreferences>):Promise<void>;
  peaks(id:string,startUs:number,endUs:number,count:number):Promise<AudioPeaks>;
  preview(id:string,edited:boolean):Promise<string>;
  export(ids:string[],options:AudioExportOptions):Promise<void>;retry(jobId:string):Promise<void>;cancel(jobId:string):Promise<void>;open(jobId:string):Promise<void>;

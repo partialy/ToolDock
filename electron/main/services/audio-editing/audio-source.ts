@@ -6,7 +6,7 @@ import {ffmpegBinaries} from '../media/engines'
 import {runProcess} from '../media/process'
 
 const toUs=(value:unknown)=>Math.round((Number(value)||0)*1e6)
-async function fileIdentity(file:string){
+export async function fileIdentity(file:string){
  const info=await fs.lstat(file)
  if(!info.isFile()||info.isSymbolicLink())throw Error('源媒体必须是普通文件，不能是符号链接')
  const stat=await fs.stat(file),size=stat.size

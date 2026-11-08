@@ -22,6 +22,11 @@ async function main(){
   assert.equal(status.projects.length,1)
   const p=status.projects[0]
   await page.getByRole('button',{name:'编辑',exact:true}).first().click()
+  await page.getByRole('button',{name:'原始试听'}).click()
+  await page.waitForFunction(()=>document.querySelector('audio')?.getAttribute('src')?.startsWith('tooldock-audio://'),null,{timeout:20000})
+  await page.evaluate(()=>document.querySelector('audio')?.load())
+  await page.waitForFunction(()=>document.querySelector('audio')?.readyState>=1&&document.querySelector('audio')?.duration>0,null,{timeout:20000})
+  console.log('ORIGINAL_PREVIEW_LOAD_PASSED')
   await page.getByRole('textbox',{name:'剪辑秒数'}).fill('1')
   await page.getByRole('button',{name:'删除前N秒'}).click()
   for(let i=0;i<80;i++){
@@ -41,7 +46,12 @@ async function main(){
   assert.equal(status.jobs[0].state,'completed',status.jobs[0].error)
   assert.ok((await fs.stat(status.jobs[0].outputPath)).size>1000)
   assert.equal((await fs.stat(video)).size,original.size)
-  console.log('AUDIO_UI_SMOKE_PASS',JSON.stringify({projects:status.projects.length,revision:status.projects[0].revision,job:status.jobs[0].state}))
+  const outputPath=status.jobs[0].outputPath
+  assert.ok(status.jobs[0].outputSignature,'导出成功后必须保存文件身份')
+  await page.evaluate(id=>window.toolDock.audio.removeHistory([id],true),status.jobs[0].id)
+  assert.equal(await fs.stat(outputPath).then(()=>true,()=>false),false,'确认后删除仅影响导出文件')
+  assert.equal((await fs.stat(video)).size,original.size,'原视频必须继续存在')
+  console.log('AUDIO_UI_SMOKE_PASS',JSON.stringify({projects:status.projects.length,revision:status.projects[0].revision,exportJob:'completed',cleanup:'verified'}))
  }finally{
   if(app)await app.close().catch(()=>{})
   await fs.rm(tmp,{recursive:true,force:true}).catch(()=>{})

@@ -28,6 +28,14 @@ export function AudioProjectsPanel({status,prefs,legacy,focusJobId,onEdit,onRefr
   try{await window.toolDock.audio.remove(ids);setSelected(x=>x.filter(id=>!ids.includes(id)));onRefresh();msg.success('工程已移除')}
   catch(e){msg.error(e)}
  }
+ const clearHistory=async(ids:string[],deleteFiles:boolean)=>{
+  if(!ids.length)return
+  if(!await confirm({title:deleteFiles?'删除已导出音频及记录？':'清理导出记录？',
+   description:deleteFiles?'将删除选定的已导出文件及记录，原始媒体不会删除。只允许删除身份未发生变化的输出文件。':'仅删除导出历史，原始媒体、编辑工程和已导出的文件均会保留。',
+   variant:deleteFiles?'danger':'warning',confirmText:deleteFiles?'删除文件及记录':'清除记录'}))return
+  try{await window.toolDock.audio.removeHistory(ids,deleteFiles);onRefresh();msg.success('已清理导出历史')}
+  catch(e){msg.error(e)}
+ }
  const batch=async()=>{
   const n=parseAudioTime(batchSeconds),target=status.projects.filter(p=>selected.includes(p.id))
   if(!n||!target.length){msg.warning('选择至少一项工程并输入有效的时间');return}
@@ -64,7 +72,7 @@ export function AudioProjectsPanel({status,prefs,legacy,focusJobId,onEdit,onRefr
  return <section className="space-y-4">
   <div className="flex flex-wrap items-center justify-between gap-2">
    <div><h2 className="text-sm font-semibold">音频工程</h2><p className="mt-1 text-xs muted">导入后不立即写文件 · 可以剪辑或直接导出 · 编辑记录自动保存</p></div>
-   <div className="flex flex-wrap gap-2"><Button size="sm" onClick={()=>chooseExport(selected)} disabled={!selected.length}><Download size={14}/>导出选中 ({selected.length})</Button><Button size="sm" variant="danger" disabled={!selected.length} onClick={()=>void remove(selected)}><Trash2 size={14}/>移除选中</Button></div>
+   <div className="flex flex-wrap gap-2"><Button size="sm" onClick={()=>chooseExport(selected)} disabled={!selected.length}><Download size={14}/>导出选中 ({selected.length})</Button><Button size="sm" variant="danger" disabled={!selected.length} onClick={()=>void remove(selected)}><Trash2 size={14}/>移除选中</Button><Button size="sm" disabled={!status.jobs.some(j=>!['queued','running'].includes(j.state))} onClick={()=>void clearHistory(status.jobs.filter(j=>!['queued','running'].includes(j.state)).map(j=>j.id),false)}>清理导出历史</Button></div>
   </div>
   <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-3">
    <Search size={16} className="muted"/><input value={query} onChange={e=>{setQuery(e.target.value);setPage(0)}} placeholder="搜索工程名称或文件路径" className="h-9 min-w-28 flex-1 bg-transparent text-sm outline-none"/>
@@ -106,6 +114,8 @@ export function AudioProjectsPanel({status,prefs,legacy,focusJobId,onEdit,onRefr
         {j.state==='completed'&&<Button size="sm" onClick={()=>void window.toolDock.audio.open(j.id).catch(e=>msg.error(e))}><FolderOpen size={14}/>打开</Button>}
         {['failed','cancelled','interrupted'].includes(j.state)&&<Button size="sm" onClick={()=>void retry(j.id)}>重试</Button>}
         {['queued','running'].includes(j.state)&&<Button size="sm" onClick={()=>void cancel(j.id)}>取消</Button>}
+        {!['queued','running'].includes(j.state)&&<Button size="sm" variant="ghost" onClick={()=>void clearHistory([j.id],false)}>清除记录</Button>}
+        {j.state==='completed'&&j.outputSignature&&<Button size="sm" variant="danger" onClick={()=>void clearHistory([j.id],true)}>删除输出文件</Button>}
        </div>)}
       </div>}
      </div>

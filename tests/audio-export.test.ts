@@ -37,6 +37,14 @@ describe('真实 FFmpeg 音频剪辑/试听冒烟验证',()=>{
   const next=await renderAudioExport(again,new AbortController().signal,()=>{})
   expect(next.path).toMatch(/output \(1\)\.mp3$/)
  })
+ it('响度归一化两遍分析后可生成有效音频',async()=>{
+  const normalized=job([{startUs:0,endUs:4000000}])
+  normalized.edit.effect='normalize'
+  normalized.options.name='normalized'
+  const result=await renderAudioExport(normalized,new AbortController().signal,()=>{})
+  expect(result.path).toMatch(/normalized\.mp3$/)
+  expect(result.size).toBeGreaterThan(1000)
+ })
  it('预览音频提供可 seek 的 HTTP Range，波形有真实采样',async()=>{
   const p:AudioProject={id:randomUUID(),source,streamIndex:source.streams[0].index,edit:job([{startUs:0,endUs:4000000}]).edit,
    revision:1,displayName:'source',outputName:'output',createdAt:Date.now(),updatedAt:Date.now(),lastOpenedAt:Date.now()}
