@@ -13,9 +13,11 @@ import type {DeviceInfo,IncomingFile,LanInterface,SharedFile,TransferPreferences
 import {TRANSFER_DEFAULTS} from '../../../../src/shared/fileTransferModels'
 import {SharedTree} from './shared-tree'
 import {saveShareHistory} from '../../database/file-transfer-history'
-import {getDb} from '../../database/store'
+import {FilePool} from './pool'
+import {MessagePool} from './messages'
+import {getDb,getDataRoot} from '../../database/store'
 type InternalShare=SharedFile&{file:string;rootId?:string}
-type Upload=IncomingFile&{temp:string;owner:string;lastActive:number;fd?:fs.FileHandle}
+type Upload=IncomingFile&{temp:string;owner:string;lastActive:number;relativeFolder:string;group:string;fd?:fs.FileHandle}
 const GIB=1024**3
 const HEADER={'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','Cache-Control':'no-store','Cross-Origin-Resource-Policy':'same-origin'}
 export class FileTransferService extends EventEmitter {
@@ -32,6 +34,12 @@ export class FileTransferService extends EventEmitter {
  private uploads=new Map<string,Upload>()
  private tasks=new Map<string,TransferTask>()
  private tempRoot:string|null=null
+ private pool=new FilePool(()=>this.emitChange())
+ private messages=new MessagePool(()=>this.emitChange())
+ private poolDownloadIds=new Map<string,string>()
+ private subscribers=new Set<ServerResponse>()
+ private revision=0
+ private cleaning=false
  private timer:NodeJS.Timeout|null=null
  private pendingReservationBytes=0
  private activeDownloads=0
@@ -44,10 +52,10 @@ export class FileTransferService extends EventEmitter {
  setWindow(win:BrowserWindow){this.window=win}
  getPrefs(){return {...this.prefs}}
  setPrefs(next:TransferPreferences){
-  if(!Number.isSafeInteger(next.maxFileBytes)||next.maxFileBytes<1024**2||next.maxFileBytes>50*GIB)throw Error('文件大小限额无效')
-  if(!Number.isSafeInteger(next.maxTempBytes)||next.maxTempBytes<next.maxFileBytes||next.maxTempBytes>100*GIB)throw Error('临时容量限额无效')
+  if(!Number.isSafeInteger(next.maxFileBytes)||next.maxFileBytes<0||next.maxFileBytes>500*GIB)throw Error('文件大小限额无效')
+  if(!Number.isSafeInteger(next.maxTempBytes)||next.maxTempBytes<GIB||next.maxTempBytes<next.maxFileBytes||next.maxTempBytes>500*GIB)throw Error('临时容量限额无效')
   if(!Number.isInteger(next.maxUploads)||next.maxUploads<1||next.maxUploads>4||!Number.isInteger(next.maxDownloads)||next.maxDownloads<1||next.maxDownloads>8)throw Error('并发设置超出范围')
-  if(next.allowUpload&&!next.receiveDirectory&&!this.prefs.receiveDirectory)throw Error('必须先选择接收目录才能开启上传')
+  if(next.tempDirectory&&(!path.isAbsolute(next.tempDirectory)||next.tempDirectory.startsWith('\\\\')))throw Error('临时目录必须是本地绝对路径')
   this.prefs={...next,receiveDirectory:next.receiveDirectory||this.prefs.receiveDirectory}
   this.emitChange()
   return this.getPrefs()
@@ -67,9 +75,46 @@ export class FileTransferService extends EventEmitter {
   return {running:!!this.server,port:this.port,address:this.address,url,pin:this.auth?.pin||null,
    qrUrl:url&&this.auth?url+'/#token='+encodeURIComponent(this.auth.bootstrap):null,
    interfaces:interfaces(),shares:[...this.shares.values()].map(({file,...safe})=>({...safe,path:file})),incoming:[...this.uploads.values()].map(({temp,owner,lastActive,fd,...safe})=>safe),
-   devices:this.auth?.list()||[],tasks:[...this.tasks.values()],prefs:this.getPrefs()}
+   devices:this.auth?.list()||[],tasks:[...this.tasks.values()],prefs:this.getPrefs(),pool:{usedBytes:this.pool.usedBytes,reservedBytes:this.activeUploadBytes()+this.pendingReservationBytes,limitBytes:this.prefs.maxTempBytes,messageBytes:this.messages.usedBytes,fileCount:this.pool.itemCount,messageCount:this.messages.list().total}}
  }
- private emitChange(){this.emit('change');if(this.window&&!this.window.isDestroyed())this.window.webContents.send('transfer:changed',this.getSnapshot())}
+ private emitChange(){this.emit('change');if(this.window&&!this.window.isDestroyed())this.window.webContents.send('transfer:changed',this.getSnapshot());const message='id: '+(++this.revision)+'\nevent: change\ndata: {}\n\n';for(const res of this.subscribers)try{res.write(message)}catch{this.subscribers.delete(res)}}
+ listPool(parentId:string|null=null,cursor=0,search='',sort:'newest'|'oldest'|'name'|'size'='newest'){return this.pool.list(parentId,cursor,search,sort)}
+ listMessages(after=0,limit=100){return this.messages.list(after,limit)}
+ messageChunk(id:string,offset=0){return this.messages.chunk(id,offset)}
+ messageSearch(id:string,q:string){return this.messages.search(id,q)}
+ messageText(id:string){return this.messages.text(id)}
+ async clearMessages(){await this.messages.clear()}
+ async deleteMessages(ids:string[]){await this.messages.remove(ids)}
+ private activeUploadBytes(){return [...this.uploads.values()].filter(u=>['uploading','paused'].includes(u.status)).reduce((n,u)=>n+u.size,0)}
+ async addPoolSources(paths:string[]){
+  return this.pool.addLocal(paths,async size=>{
+   if(this.pool.usedBytes+this.pendingReservationBytes+this.activeUploadBytes()+size>this.prefs.maxTempBytes)throw Error('文件池配额不足')
+   this.pendingReservationBytes+=size;this.emitChange()
+   try{const disk=await fs.statfs(this.tempRoot!);if(disk.bavail*disk.bsize<size+2*GIB)throw Error('磁盘可用空间不足')}
+   catch(e){this.pendingReservationBytes-=size;throw e}
+   return ()=>{this.pendingReservationBytes-=size;this.emitChange()}
+  })
+ }
+ async removePool(ids:string[]){
+  for(const [task,poolId] of this.poolDownloadIds)if(ids.includes(poolId)){this.activeResponses.get(task)?.destroy()}
+  return this.pool.remove(ids)
+ }
+ async clearPool(){
+  for(const task of this.poolDownloadIds.keys())this.activeResponses.get(task)?.destroy()
+  for(const upload of this.uploads.values())if(['uploading','paused'].includes(upload.status)){await fs.rm(upload.temp,{force:true}).catch(()=>{});upload.status='rejected'}
+  await this.pool.clear();this.emitChange()
+ }
+ async savePool(win:BrowserWindow,ids:string[]){
+  const result=await dialog.showOpenDialog(win,{title:'选择文件池保存目录',properties:['openDirectory','createDirectory']})
+  if(result.canceled||!result.filePaths[0])return {cancelled:true}
+  return this.pool.save(ids,result.filePaths[0])
+ }
+ async chooseTempDirectory(win:BrowserWindow){
+  const result=await dialog.showOpenDialog(win,{title:'选择快传临时目录',properties:['openDirectory','createDirectory']})
+  if(result.canceled||!result.filePaths[0])return null
+  const value=path.resolve(result.filePaths[0]);if(!path.isAbsolute(value)||value.startsWith('\\\\'))throw Error('仅支持本地路径')
+  this.setPrefs({...this.prefs,tempDirectory:value});return value
+ }
  async chooseShares(win:BrowserWindow){
   const choice=await dialog.showOpenDialog(win,{title:'添加共享文件',properties:['openFile','multiSelections']})
   if(!choice.canceled)await this.addSources(choice.filePaths)
@@ -123,7 +168,8 @@ export class FileTransferService extends EventEmitter {
   this.emitChange()
  }
  async cleanupAbandoned(){
-  const folder=os.tmpdir()
+  const bases=[os.tmpdir(),this.prefs.tempDirectory||path.join(getDataRoot(),'temp','file-transfer')]
+  for(const folder of bases){
   const entries=await fs.readdir(folder,{withFileTypes:true}).catch(()=>[])
   for(const entry of entries){
    if(!entry.isDirectory()||!/^tooldock-transfer-[a-zA-Z0-9_-]{6,}$/.test(entry.name))continue
@@ -136,14 +182,18 @@ export class FileTransferService extends EventEmitter {
    try{process.kill(owner.pid!,0);alive=true}catch(e){if((e as NodeJS.ErrnoException).code!=='ESRCH')alive=true}
    if(!alive)await fs.rm(location,{recursive:true,force:true}).catch(()=>{})
   }
+  }
  }
  async start(address:string){
   if(this.server)throw Error('服务器已经启动')
   const nic=interfaces().find(x=>x.address===address)
   if(!nic||!isPrivateIpv4(address))throw Error('必须选择可用的局域网 IPv4 地址')
-  const temp=await fs.mkdtemp(path.join(os.tmpdir(),'tooldock-transfer-'))
+  const base=this.prefs.tempDirectory||path.join(getDataRoot(),'temp','file-transfer')
+  await fs.mkdir(base,{recursive:true})
+  const temp=await fs.mkdtemp(path.join(base,'tooldock-transfer-'))
   await fs.writeFile(path.join(temp,'.owner'), JSON.stringify({app:'ToolDock Transfer v1',pid:process.pid,start:Date.now()}),'utf8')
   this.tempRoot=temp
+  await this.pool.open(temp);await this.messages.open(temp)
   const auth=new LanAuth(),server=createServer((req,res)=>{void this.handle(req,res).catch(e=>{if(!res.headersSent)sendJson(res,500,{error:e instanceof Error?e.message:'服务器处理失败'});else res.destroy()})})
   server.on('connection',socket=>{this.sockets.add(socket);socket.on('close',()=>this.sockets.delete(socket))})
   server.headersTimeout=10_000;server.requestTimeout=120_000;server.keepAliveTimeout=8000;server.maxRequestsPerSocket=200
@@ -156,18 +206,22 @@ export class FileTransferService extends EventEmitter {
    this.timer=setInterval(()=>{void this.cleanupExpired();if(!interfaces().some(n=>n.address===address)){void this.stop()}},30000)
    this.timer.unref()
    this.emitChange();return this.getSnapshot()
-  }catch(e){server.close();await fs.rm(temp,{recursive:true,force:true});this.tempRoot=null;throw e}
+  }catch(e){server.close();await this.pool.close();await this.messages.close();await fs.rm(temp,{recursive:true,force:true});this.tempRoot=null;throw e}
  }
  async stop(){
+  if(this.cleaning)return
+  this.cleaning=true
   if(this.timer)clearInterval(this.timer);this.timer=null
   const server=this.server;this.server=null
   this.auth?.clear();this.auth=null;this.address=null;this.mask=null;this.port=null
   for(const socket of this.sockets)socket.destroy();this.sockets.clear()
   if(server)await new Promise<void>(resolve=>server.close(()=>resolve()))
+  for(const res of this.subscribers)res.end();this.subscribers.clear()
   for(const u of this.uploads.values())await u.fd?.close().catch(()=>{})
   this.uploads.clear();this.shares.clear();this.tree.clear();this.archiveTickets.clear();this.downloadRoots.clear();this.tasks.clear();this.inProgressUploads.clear();this.activeDownloads=0;this.activeResponses.clear();this.downloadOwners.clear();this.downloadShares.clear()
+  await this.pool.close();await this.messages.close();this.poolDownloadIds.clear()
   if(this.tempRoot)await fs.rm(this.tempRoot,{recursive:true,force:true}).catch(()=>{})
-  this.tempRoot=null;this.emitChange()
+  this.tempRoot=null;this.cleaning=false;this.emitChange()
  }
 
  async approve(id:string){
@@ -253,7 +307,75 @@ export class FileTransferService extends EventEmitter {
   }
   const device=this.auth?.identify(req)
   if(!device)return sendJson(res,401,{error:'请先输入访问码或扫描二维码授权'})
-  if(method==='GET'&&pathname==='/api/status')return sendJson(res,200,{shares:this.prefs.allowDownload?this.getSnapshot().shares.map(({path,...safe})=>safe):[],uploadAllowed:this.prefs.allowUpload,downloadAllowed:this.prefs.allowDownload,device})
+  if(method==='GET'&&pathname==='/api/status')return sendJson(res,200,{shares:this.prefs.allowDownload?this.getSnapshot().shares.map(({path,...safe})=>safe):[],uploadAllowed:this.prefs.allowPoolUpload,downloadAllowed:this.prefs.allowDownload,poolDownloadAllowed:this.prefs.allowPoolDownload,device,pool:this.getSnapshot().pool})
+  if(method==='GET'&&pathname==='/api/events'){
+   res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache, no-transform','Connection':'keep-alive'})
+   res.write('event: connected\ndata: {}\n\n')
+   this.subscribers.add(res)
+   const keepalive=setInterval(()=>{if(!res.destroyed)res.write(': heartbeat\n\n')},25000);keepalive.unref()
+   req.on('close',()=>{this.subscribers.delete(res);clearInterval(keepalive)})
+   return
+  }
+  if(method==='POST'&&pathname==='/api/device/name'){
+   const b=await receiveJson(req,1024)
+   const name=String(b.name||'').trim().slice(0,40)
+   if(!name)return sendJson(res,400,{error:'设备名称不能为空'})
+   this.auth?.rename(device.id,name);this.emitChange();return sendJson(res,200,{ok:true})
+  }
+  if(method==='GET'&&pathname==='/api/pool'){
+   if(!this.prefs.allowPoolDownload)return sendJson(res,403,{error:'文件池下载未开启'})
+   const parent=url.searchParams.get('parent'),offset=Number(url.searchParams.get('cursor')||'0')
+   if(!Number.isSafeInteger(offset)||offset<0||offset>1e9)return sendJson(res,400,{error:'分页参数无效'})
+   const sort=url.searchParams.get('sort')||'newest'
+   if(!['newest','oldest','name','size'].includes(sort))return sendJson(res,400,{error:'排序参数无效'})
+   const q=(url.searchParams.get('q')||'').slice(0,200)
+   return sendJson(res,200,this.listPool(parent,offset,q,sort as 'newest'|'oldest'|'name'|'size'))
+  }
+  if((method==='GET'||method==='HEAD')&&pathname.startsWith('/api/pool/files/')){
+   if(!this.prefs.allowPoolDownload)return sendJson(res,403,{error:'文件池下载未开启'})
+   const id=pathname.slice('/api/pool/files/'.length)
+   if(!/^[0-9a-f-]{36}$/i.test(id))return sendJson(res,400,{error:'无效文件 ID'})
+   const f=this.pool.file(id)
+   return this.download(req,res,{id,name:f.name,file:f.file,size:f.size,kind:'file',status:'ready',mtimeMs:0},device,true)
+  }
+  if(method==='POST'&&pathname==='/api/pool/archive'){
+   if(!this.prefs.allowPoolDownload)return sendJson(res,403,{error:'文件池下载未开启'})
+   const b=await receiveJson(req,256*1024)
+   const ids=b.ids
+   if(!Array.isArray(ids)||ids.length>20000||ids.some(x=>typeof x!=='string'||!/^[0-9a-f-]{36}$/i.test(x)))return sendJson(res,400,{error:'文件列表无效'})
+   const ticket=randomUUID()
+   this.archiveTickets.set(ticket,{ids,owner:device.id,expires:Date.now()+300000})
+   return sendJson(res,201,{url:'/api/pool/archive/'+ticket})
+  }
+  if(method==='GET'&&pathname.startsWith('/api/pool/archive/')){
+   if(!this.prefs.allowPoolDownload)return sendJson(res,403,{error:'文件池下载未开启'})
+   const key=pathname.split('/').at(-1)!,ticket=this.archiveTickets.get(key)
+   if(!ticket||ticket.owner!==device.id||ticket.expires<Date.now())return sendJson(res,404,{error:'ZIP 下载凭据无效'})
+   this.archiveTickets.delete(key);return this.downloadPoolZip(res,device,ticket.ids)
+  }
+  if(method==='POST'&&pathname==='/api/pool/folders'){
+   if(!this.prefs.allowPoolUpload)return sendJson(res,403,{error:'文件池上传未开启'})
+   const b=await receiveJson(req,512*1024)
+   const paths=b.paths,group=String(b.group||'')
+   if(!Array.isArray(paths)||paths.length>20000||paths.some(x=>typeof x!=='string')||!/^[0-9a-f-]{36}$/i.test(group))return sendJson(res,400,{error:'目录参数无效'})
+   this.pool.addFolders(paths,{deviceId:device.id,deviceName:device.name||device.agent},group)
+   return sendJson(res,201,{ok:true})
+  }
+  if(method==='GET'&&pathname==='/api/messages')return sendJson(res,200,this.listMessages(Number(url.searchParams.get('after')||0)))
+  if(method==='POST'&&pathname==='/api/messages'){
+   const value=await this.messages.publish(req,{deviceId:device.id,deviceName:device.name||device.agent})
+   return sendJson(res,201,value)
+  }
+  const messageMatch=/^\/api\/messages\/([0-9a-f-]{36})\/(text|chunk|search|download)$/.exec(pathname)
+  if(method==='GET'&&messageMatch){
+   const [,id,action]=messageMatch
+   if(action==='chunk')return sendJson(res,200,await this.messageChunk(id,Number(url.searchParams.get('offset')||0)))
+   if(action==='search')return sendJson(res,200,{hits:await this.messageSearch(id,url.searchParams.get('q')||'')})
+   const value=this.messages.get(id)
+   res.writeHead(200,{'Content-Type':'text/plain; charset=utf-8','Content-Disposition':action==='download'?"attachment; filename*=UTF-8''"+encodeURIComponent('tooldock-message-'+id+'.txt'):'inline','Cache-Control':'no-store'})
+   if(value.file)return void await pipeline(createReadStream(value.file),res).catch(()=>res.destroy())
+   res.end(value.text||'');return
+  }
   if(method==='GET'&&pathname==='/api/tree'){
    if(!this.prefs.allowDownload)return sendJson(res,403,{error:'未开启下载权限'})
    const parent=url.searchParams.get('parent')||''
@@ -294,11 +416,14 @@ export class FileTransferService extends EventEmitter {
    return this.downloadZip(res,device,url.searchParams.getAll('id'))
   }
   if(method==='POST'&&pathname==='/api/uploads'){
-   if(!this.prefs.allowUpload||!this.prefs.receiveDirectory)return sendJson(res,403,{error:'电脑未开启接收权限'})
+   if(!this.prefs.allowPoolUpload)return sendJson(res,403,{error:'文件池上传未开启'})
    const b=await receiveJson(req)
    const size=Number(b.size),name=String(b.name||'')
-   if(!Number.isSafeInteger(size)||size<1||size>this.prefs.maxFileBytes||name.length>250)return sendJson(res,400,{error:'文件大小或名称无效'})
-   const used=[...this.uploads.values()].filter(u=>!['accepted','rejected'].includes(u.status)).reduce((n,u)=>n+u.size,0)
+   if(!Number.isSafeInteger(size)||size<0||size>this.prefs.maxFileBytes||name.length>250)return sendJson(res,400,{error:'文件大小或名称无效'})
+   const relativeFolder=String(b.relativeFolder||'').replace(/\\/g,'/')
+   const group=String(b.group||'')
+   if(relativeFolder&&(relativeFolder.split('/').some(x=>!x||x==='.'||x==='..'||x.length>250)||relativeFolder.split('/').length>32)||group&&!/^[0-9a-f-]{36}$/i.test(group))return sendJson(res,400,{error:'目录路径或批次无效'})
+   const used=this.activeUploadBytes()+this.pool.usedBytes
    if(used+this.pendingReservationBytes+size>this.prefs.maxTempBytes)return sendJson(res,429,{error:'暂存空间配额已满'})
    if(this.uploads.size>=500)return sendJson(res,429,{error:'本次会话上传任务过多'})
    // Reserve synchronously before any await: simultaneous devices cannot overbook the quota.
@@ -310,7 +435,7 @@ export class FileTransferService extends EventEmitter {
     if(disk.bavail*disk.bsize<size+this.pendingReservationBytes-size+2*GIB)return sendJson(res,507,{error:'暂存盘剩余空间不足'})
     temp=path.join(this.tempRoot!,id+'.part')
     await fs.writeFile(temp,Buffer.alloc(0),{flag:'wx',mode:0o600})
-    this.uploads.set(id,{id,name:safeFilename(name),size,received:0,ip,status:'uploading',temp,owner:device.id,lastActive:Date.now()})
+    this.uploads.set(id,{id,name:safeFilename(name),size,received:0,ip,status:'uploading',temp,owner:device.id,lastActive:Date.now(),relativeFolder,group})
    }catch(e){if(temp)await fs.rm(temp,{force:true}).catch(()=>{});throw e}
    finally{this.pendingReservationBytes-=size}
    this.tasks.set(id,{id,name:safeFilename(name),total:size,completed:0,direction:'upload',ip,status:'uploading'})
@@ -330,12 +455,10 @@ export class FileTransferService extends EventEmitter {
    if(method==='POST'&&uploadMatch[2]){
     if(u.status!=='uploading'&&u.status!=='paused')return sendJson(res,409,{error:'状态不允许完成'})
     if(u.received!==u.size)return sendJson(res,409,{error:'文件未完全上传',offset:u.received})
-    u.status='pending';const task=this.tasks.get(u.id);if(task)task.status='pending';this.emitChange()
-    if(this.window&&!this.window.isDestroyed()){
-     this.window.webContents.send('transfer:pending',{id:u.id,name:u.name,size:u.size})
-     if(!this.window.isFocused()&&Notification.isSupported())new Notification({title:'ToolDock 收到待接收文件',body:'有一个文件上传完成，等待你确认接收'}).show()
-    }
-    return sendJson(res,200,{ok:true,status:'pending'})
+    const poolId=await this.pool.publish(u.temp,u.name,u.size,{deviceId:u.owner,deviceName:device.name||device.agent},u.relativeFolder,u.group)
+    u.status='accepted';const task=this.tasks.get(u.id);if(task)task.status='completed';this.emitChange()
+    if(this.window&&!this.window.isDestroyed()&&!this.window.isFocused()&&Notification.isSupported())new Notification({title:'ToolDock 文件池新增文件',body:u.name+' 已进入文件池'}).show()
+    return sendJson(res,200,{ok:true,status:'accepted',poolId})
    }
    if(method==='PUT'&&!uploadMatch[2]){
     if(u.status!=='uploading'&&u.status!=='paused')return sendJson(res,409,{error:'文件状态不允许写入'})
@@ -362,7 +485,7 @@ export class FileTransferService extends EventEmitter {
   }
   return sendJson(res,404,{error:'接口不存在'})
  }
- private async download(req:IncomingMessage,res:ServerResponse,s:InternalShare,device:DeviceInfo){
+ private async download(req:IncomingMessage,res:ServerResponse,s:InternalShare,device:DeviceInfo,fromPool=false){
   if(this.activeDownloads>=this.prefs.maxDownloads)return sendJson(res,429,{error:'下载队列繁忙'})
   const size=s.size
   if(size===0){res.writeHead(200,{'Content-Type':'application/octet-stream','Content-Length':0,'Content-Disposition':"attachment; filename*=UTF-8''"+encodeURIComponent(safeFilename(s.name))});res.end();return}
@@ -382,14 +505,14 @@ export class FileTransferService extends EventEmitter {
   }
   res.writeHead(status,{'Content-Type':'application/octet-stream','Content-Disposition':"attachment; filename*=UTF-8''"+name,'Content-Length':end-start+1,'Accept-Ranges':'bytes',...(status===206?{'Content-Range':'bytes '+start+'-'+end+'/'+size}:{})})
   this.activeDownloads++
-  const id=randomUUID();this.tasks.set(id,{id,name:s.name,direction:'download',total:end-start+1,completed:0,status:'running',ip:device.ip});this.activeResponses.set(id,res);this.downloadOwners.set(id,device.id);this.downloadShares.set(id,s.rootId||s.id);this.emitChange()
+  const id=randomUUID();this.tasks.set(id,{id,name:s.name,direction:'download',total:end-start+1,completed:0,status:'running',ip:device.ip});this.activeResponses.set(id,res);this.downloadOwners.set(id,device.id);this.downloadShares.set(id,s.rootId||s.id);if(fromPool)this.poolDownloadIds.set(id,s.id);this.emitChange()
   try{
    const stream=createReadStream(s.file,{start,end})
    stream.on('data',b=>{const t=this.tasks.get(id);if(t)t.completed+=(b as Buffer).length})
    await pipeline(stream,res)
    this.tasks.get(id)!.status='completed'
   }catch{const t=this.tasks.get(id);if(t)t.status='failed';res.destroy()}
-  finally{this.activeDownloads--;this.activeResponses.delete(id);this.downloadOwners.delete(id);this.downloadShares.delete(id);this.emitChange()}
+  finally{this.activeDownloads--;this.activeResponses.delete(id);this.downloadOwners.delete(id);this.downloadShares.delete(id);this.poolDownloadIds.delete(id);this.emitChange()}
  }
  private async downloadZip(res:ServerResponse,device:DeviceInfo,selectedIds:string[]=[]){
   if(this.activeDownloads>=this.prefs.maxDownloads)return sendJson(res,429,{error:'下载队列繁忙'})
@@ -445,5 +568,32 @@ export class FileTransferService extends EventEmitter {
   }
  }
 
+ private async downloadPoolZip(res:ServerResponse,device:DeviceInfo,ids:string[]){
+  if(this.activeDownloads>=this.prefs.maxDownloads)return sendJson(res,429,{error:'下载队列繁忙'})
+  const selected=ids.length?ids:this.pool.rootIds()
+  const entries=this.pool.entries(selected)
+  const total=entries.reduce((n,x)=>n+(x.kind==='file'?x.size:0),0)
+  if(total>200*GIB)return sendJson(res,413,{error:'单次 ZIP 下载上限为 200 GiB'})
+  if(!entries.length)return sendJson(res,400,{error:'文件池为空'})
+  const zip=new yazl.ZipFile(),taskId=randomUUID()
+  const task:TransferTask={id:taskId,name:'文件池.zip',direction:'download',total,completed:0,status:'running',ip:device.ip}
+  for(const entry of entries){
+   const parts=entry.name.replace(/\\/g,'/').split('/').filter(Boolean).map(safeFilename)
+   const name=parts.join('/')
+   if(entry.kind==='directory'){zip.addEmptyDirectory(name+'/');continue}
+   if(!entry.file)continue
+   zip.addReadStreamLazy(name,{size:entry.size,forceZip64Format:entry.size>=4*GIB},done=>{
+    const stream=createReadStream(entry.file!)
+    stream.on('data',b=>{task.completed+=Buffer.byteLength(b)})
+    done(null,stream)
+   })
+  }
+  zip.end({forceZip64Format:true,comment:''})
+  this.activeDownloads++;this.tasks.set(taskId,task);this.activeResponses.set(taskId,res);this.downloadOwners.set(taskId,device.id)
+  this.emitChange()
+  res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':'attachment; filename="tooldock-pool.zip"'})
+  try{await pipeline(zip.outputStream,res);task.status='completed'}catch{task.status='failed';res.destroy()}
+  finally{this.activeDownloads--;this.activeResponses.delete(taskId);this.downloadOwners.delete(taskId);this.emitChange()}
+ }
 }
 export const fileTransfer=new FileTransferService()

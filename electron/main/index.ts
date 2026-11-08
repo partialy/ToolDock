@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, screen, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, screen, shell, clipboard } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
@@ -162,7 +162,20 @@ function channels(){
  register('transfer:history:restore',(a:unknown)=>{const ids=z.array(z.uuid()).max(300).parse(a);return fileTransfer.addSources(getShareHistory(getDb(),ids).map(x=>x.path))})
  register('transfer:removeShare',(a:unknown)=>fileTransfer.removeShare(z.string().uuid().parse(a)))
  register('transfer:chooseDirectory',async()=>{const folder=await fileTransfer.chooseDirectory(win!);if(folder){const p=fileTransfer.getPrefs();putSetting('fileTransferPrefs',p)}return folder})
- register('transfer:setPrefs',(a:unknown)=>{const next=z.object({allowDownload:z.boolean(),allowUpload:z.boolean(),maxFileBytes:z.number().int(),maxTempBytes:z.number().int(),maxUploads:z.number().int(),maxDownloads:z.number().int()}).parse(a);const p=fileTransfer.setPrefs({...fileTransfer.getPrefs(),...next});putSetting('fileTransferPrefs',p);return p})
+ register('transfer:setPrefs',(a:unknown)=>{const next=z.object({allowDownload:z.boolean(),allowPoolUpload:z.boolean(),allowPoolDownload:z.boolean(),maxFileBytes:z.number().int(),maxTempBytes:z.number().int(),maxUploads:z.number().int(),maxDownloads:z.number().int()}).parse(a);const p=fileTransfer.setPrefs({...fileTransfer.getPrefs(),...next});putSetting('fileTransferPrefs',p);return p})
+ register('transfer:tempDirectory',async()=>{const value=await fileTransfer.chooseTempDirectory(win!);if(value)putSetting('fileTransferPrefs',fileTransfer.getPrefs());return value})
+ register('transfer:pool:list',(a:unknown)=>{const q=z.object({parentId:z.uuid().nullable(),cursor:z.number().int().min(0),search:z.string().max(200),sort:z.enum(['newest','oldest','name','size'])}).parse(a);return fileTransfer.listPool(q.parentId,q.cursor,q.search,q.sort)})
+ register('transfer:pool:add',(a:unknown)=>fileTransfer.addPoolSources(z.array(z.string().min(3).max(4096)).max(500).parse(a)))
+ register('transfer:pool:pick',async()=>{const choice=await dialog.showOpenDialog(win!,{title:'添加文件到共享池',properties:['openFile','multiSelections']});return choice.canceled?{added:0,skipped:0,errors:[]}:fileTransfer.addPoolSources(choice.filePaths)})
+ register('transfer:pool:remove',(a:unknown)=>fileTransfer.removePool(z.array(z.uuid()).min(1).max(20000).parse(a)))
+ register('transfer:pool:clear',()=>fileTransfer.clearPool())
+ register('transfer:pool:save',(a:unknown)=>fileTransfer.savePool(win!,z.array(z.uuid()).min(1).max(20000).parse(a)))
+ register('transfer:messages:list',()=>fileTransfer.listMessages())
+ register('transfer:messages:chunk',(a:unknown)=>{const q=z.object({id:z.uuid(),offset:z.number().int().min(0)}).parse(a);return fileTransfer.messageChunk(q.id,q.offset)})
+ register('transfer:messages:search',(a:unknown)=>{const q=z.object({id:z.uuid(),query:z.string().min(1).max(128)}).parse(a);return fileTransfer.messageSearch(q.id,q.query)})
+ register('transfer:messages:copy',async(a:unknown)=>{clipboard.writeText(await fileTransfer.messageText(z.uuid().parse(a)));return true})
+ register('transfer:messages:remove',(a:unknown)=>fileTransfer.deleteMessages(z.array(z.uuid()).min(1).max(300).parse(a)))
+ register('transfer:messages:clear',()=>fileTransfer.clearMessages())
  register('transfer:approve',(a:unknown)=>fileTransfer.approve(z.string().uuid().parse(a)))
  register('transfer:reject',(a:unknown)=>fileTransfer.reject(z.string().uuid().parse(a)))
  register('transfer:approveMany',(a:unknown)=>fileTransfer.approveMany(z.array(z.string().uuid()).max(200).parse(a)))
@@ -233,7 +246,7 @@ function createWindow(){
 }
 app.whenReady().then(async()=>{
  if(!primaryInstance)return
- try{initStore();initMarker();initLog();await quickLaunch.initialize();await media.initialize();await textConversion.initialize();void fileTransfer.cleanupAbandoned();recordEvent('app-start');channels();createWindow();tray=createAppTray(showMainWindow,openPinnedTool,getPinnedTools(true));const prefs=getSettings().fileTransferPrefs;fileTransfer.setPrefs(prefs);if(win)fileTransfer.setWindow(win);fileTransfer.on('change',()=>{}); }
+ try{initStore();initMarker();initLog();await quickLaunch.initialize();await media.initialize();await textConversion.initialize();recordEvent('app-start');channels();createWindow();tray=createAppTray(showMainWindow,openPinnedTool,getPinnedTools(true));const prefs=getSettings().fileTransferPrefs;fileTransfer.setPrefs(prefs);void fileTransfer.cleanupAbandoned();if(win)fileTransfer.setWindow(win);fileTransfer.on('change',()=>{}); }
  catch(e){dialog.showErrorBox('ToolDock 初始化失败',e instanceof Error?e.stack||e.message:String(e));app.quit()}
 })
 app.on('window-all-closed',()=>{if(!tray||tray.isDestroyed())app.quit()})

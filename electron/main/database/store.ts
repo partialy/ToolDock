@@ -166,15 +166,18 @@ export function getSettings():Settings {
  if(input.receiveDirectory===null||(typeof input.receiveDirectory==='string'&&input.receiveDirectory.length<=4096))prefs.receiveDirectory=input.receiveDirectory as string|null
  if(typeof input.allowDownload==='boolean')prefs.allowDownload=input.allowDownload
  if(typeof input.allowUpload==='boolean')prefs.allowUpload=input.allowUpload
+ if(typeof input.allowPoolUpload==='boolean')prefs.allowPoolUpload=input.allowPoolUpload
+ if(typeof input.allowPoolDownload==='boolean')prefs.allowPoolDownload=input.allowPoolDownload
+ if(input.tempDirectory===null||(typeof input.tempDirectory==='string'&&input.tempDirectory.length<=4096))prefs.tempDirectory=input.tempDirectory as string|null
  const positive=(key:'maxFileBytes'|'maxTempBytes'|'maxUploads'|'maxDownloads',min:number,max:number)=>{
   const n=input[key]
   if(typeof n==='number'&&Number.isSafeInteger(n)&&n>=min&&n<=max)prefs[key]=n
  }
- positive('maxFileBytes',1024**2,50*1024**3)
- positive('maxTempBytes',1024**2,100*1024**3)
+ positive('maxFileBytes',0,500*1024**3)
+ positive('maxTempBytes',1024**3,500*1024**3)
  positive('maxUploads',1,4)
  positive('maxDownloads',1,8)
- if(prefs.maxTempBytes<prefs.maxFileBytes)prefs.maxTempBytes=Math.max(TRANSFER_DEFAULTS.maxTempBytes,prefs.maxFileBytes)
+ if(prefs.maxTempBytes<prefs.maxFileBytes)prefs.maxFileBytes=prefs.maxTempBytes
  if(!prefs.receiveDirectory)prefs.allowUpload=false
  result.fileTransferPrefs=prefs
  return result as unknown as Settings

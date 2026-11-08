@@ -23,7 +23,7 @@ export class LanAuth{
   return this.asPublic(entry)
  }
  cookieFor(id:string){const v=this.devices.get(id);if(!v)throw Error('无效设备');return 'tooldock_session='+v.id+'.'+v.token+'; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200'}
- private asPublic(entry:Device):DeviceInfo{const {id,ip,agent,connectedAt,lastSeen}=entry;return {id,ip,agent,connectedAt,lastSeen}}
+ private asPublic(entry:Device):DeviceInfo{const {id,ip,agent,connectedAt,lastSeen,name}=entry;return {id,ip,agent,connectedAt,lastSeen,name}}
  identify(req:IncomingMessage):DeviceInfo|null{
   const cookie=/(?:^|;\s*)tooldock_session=([a-f0-9]{32})\.([A-Za-z0-9_-]+)/.exec(req.headers.cookie||'')
   if(!cookie)return null
@@ -33,6 +33,7 @@ export class LanAuth{
   if(v.ip!==ip)return null
   v.lastSeen=Date.now();return this.asPublic(v)
  }
+ rename(id:string,name:string){const entry=this.devices.get(id);if(!entry)throw Error('设备不存在');entry.name=name.trim().slice(0,40)}
  list(){return [...this.devices.values()].map(v=>this.asPublic(v))}
  revoke(id:string){this.devices.delete(id)}
  clear(){this.devices.clear();this.attempts.clear()}
