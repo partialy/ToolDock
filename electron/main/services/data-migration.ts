@@ -61,7 +61,7 @@ export function prepareDataMigration(source:string,target:string,blockedPaths:st
    if(copied)throw Error('迁移副本已创建')
    const current=fs.lstatSync(source)
    if(current.isSymbolicLink()||!sameDirectory(sourceStat,current)||normalized(fs.realpathSync.native(source))!==normalized(realSource))throw Error('原数据目录已发生变化，已停止迁移')
-   fs.cpSync(source,payload,{recursive:true,force:false,errorOnExist:true,filter:input=>{const info=fs.lstatSync(input);if(info.isSymbolicLink()||!info.isDirectory()&&!info.isFile())throw Error('数据目录包含符号链接或特殊文件，无法安全迁移');return true}})
+   fs.cpSync(source,payload,{recursive:true,force:false,errorOnExist:true,filter:input=>{const cacheRoot=path.join(source,'audio-preview-cache');if(normalized(input)===normalized(cacheRoot)||normalized(input).startsWith(normalized(cacheRoot)+path.sep))return false;const info=fs.lstatSync(input);if(info.isSymbolicLink()||!info.isDirectory()&&!info.isFile())throw Error('数据目录包含符号链接或特殊文件，无法安全迁移');return true}})
    copied=true
   },
   publish(){

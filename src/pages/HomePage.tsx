@@ -9,11 +9,11 @@ import type {Workspace} from '@/store/useWorkspace'
 
 const label:Record<DashboardGroup,string>={running:'运行中',queued:'排队中',completed:'已完成',failed:'失败',ready:'待开始',pending:'待审批',paused:'已暂停',unknown:'状态未知',cancelled:'已取消'}
 const sourceName:Record<DashboardTask['source'],string>={
- 'quick-launch':'快捷启动','media-extract':'音频提取','media-subtitle':'字幕识别',
+ 'quick-launch':'快捷启动','audio-export':'音频导出','media-extract':'音频提取','media-subtitle':'字幕识别',
  'text-conversion':'简繁转换','transfer-upload':'文件上传','transfer-download':'文件下载','model-download':'模型下载'
 }
 const sourceIcon:Record<DashboardTask['source'],typeof Activity>={
- 'quick-launch':Zap,'media-extract':Music2,'media-subtitle':Music2,
+ 'quick-launch':Zap,'audio-export':Music2,'media-extract':Music2,'media-subtitle':Music2,
  'text-conversion':Languages,'transfer-upload':Wifi,'transfer-download':Wifi,'model-download':Download
 }
 const statusColor:Partial<Record<DashboardGroup,string>>={running:'text-indigo-400',completed:'text-emerald-500',failed:'text-rose-400',unknown:'text-amber-400'}

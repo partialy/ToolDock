@@ -5,10 +5,11 @@ import type {ConversionState} from '../../../src/shared/textConversionModels'
 import type {DashboardSnapshot,DashboardTask,DashboardSource,DashboardGroup,DashboardSourceHealth} from '../../../src/shared/dashboardModels'
 
 export interface DashboardMediaItem{id:string;kind:MediaKind;name:string;state:MediaTaskState;percent:number;createdAt:number;updatedAt:number;error:string}
+export interface DashboardAudioItem{id:string;name:string;state:string;percent:number;createdAt:number;updatedAt:number;error:string}
 export interface DashboardConversionItem{id:string;name:string;state:ConversionState;percent:number;createdAt:number;updatedAt:number;error:string}
 export interface DashboardInputs{
  quickLaunch?:QuickLaunchTask[]
- media?:{tasks:DashboardMediaItem[];downloads:DownloadState[]}
+ media?:{tasks:DashboardMediaItem[];downloads:DownloadState[];audioJobs?:DashboardAudioItem[]}
  conversion?:DashboardConversionItem[]
  transfer?:TransferSnapshot
 }
@@ -43,6 +44,10 @@ export function assembleDashboard(inputs:DashboardInputs,failed:DashboardSourceH
   id:task.id,name:task.name,state:group(task.state),rawState:task.state,progress:task.state==='running'?finiteProgress(task.percent):null,
   timestamp:clock(task.updatedAt||task.createdAt),reason:safeDashboardReason(task.error),
   module:'video-processing',tab:task.kind
+ })
+ for(const job of inputs.media?.audioJobs||[])push('audio-export',{
+  id:job.id,name:job.name,state:group(job.state),rawState:job.state,progress:job.state==='running'?finiteProgress(job.percent):null,
+  timestamp:clock(job.updatedAt||job.createdAt),reason:safeDashboardReason(job.error),module:'video-processing',tab:'extract'
  })
  for(const task of inputs.conversion||[])push('text-conversion',{
   id:task.id,name:task.name,state:group(task.state),rawState:task.state,

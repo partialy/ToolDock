@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, screen, shell, clipboard } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, screen, shell, clipboard, protocol } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
@@ -23,7 +23,10 @@ import {registerMediaIpc} from './services/media/ipc'
 import {TextConversionService} from './services/text-conversion/text-conversion-service'
 import {getDashboardSnapshot} from './services/dashboard'
 import {registerTextConversionIpc} from './services/text-conversion/ipc'
+import {AudioEditingService} from './services/audio-editing/audio-editing-service'
+import {registerAudioEditingIpc} from './services/audio-editing/audio-ipc'
 
+protocol.registerSchemesAsPrivileged([{scheme:'tooldock-audio',privileges:{standard:true,secure:true,stream:true,supportFetchAPI:true}}])
 const devMode=!app.isPackaged
 app.setName(devMode?'ToolDock-Dev':'ToolDock')
 // 必须在创建窗口之前设置 Windows 任务栏分组身份；开发版与正式版隔离。
@@ -65,6 +68,7 @@ if(!primaryInstance)app.quit()
 app.on('second-instance',showMainWindow)
 const quickLaunch=new QuickLaunchService(()=>win)
 const media=new MediaService(()=>win)
+const audio=new AudioEditingService(()=>win)
 const textConversion=new TextConversionService(()=>win)
 const isMain=(event:Electron.IpcMainInvokeEvent)=>!!win&&!win.isDestroyed()&&event.sender===win.webContents&&event.senderFrame===win.webContents.mainFrame
 function register<T>(channel:string,fn:(arg:T)=>unknown|Promise<unknown>){ipcMain.handle(channel,async(e,arg:T)=>{if(!isMain(e))throw Error('不可信的 IPC 来源');try{return await fn(arg)}catch(e){recordEvent('ipc-failed:'+channel,'error');throw e}})}
@@ -76,11 +80,12 @@ const dimensions=z.object({x:z.number().finite(),y:z.number().finite(),width:z.n
 function channels(){
  register('dashboard:snapshot',()=>getDashboardSnapshot({
   quickLaunch:()=>quickLaunch.tasks(),
-  media:()=>media.dashboardState(),
+  media:()=>({...media.dashboardState(),audioJobs:audio.dashboardTasks()}),
   conversion:()=>textConversion.dashboardTasks(),
   transfer:()=>fileTransfer.getSnapshot()
  }))
  registerMediaIpc(register,media,()=>win)
+ registerAudioEditingIpc(register,audio,()=>win)
  registerTextConversionIpc(register,textConversion,()=>win)
  register('app:ready',()=>{rendererReady=true;flushPinnedNavigation()})
  const appVersion=z.strictObject({id:z.uuid(),revision:z.number().int().positive()})
@@ -190,11 +195,11 @@ function channels(){
  register('views:clearData',(id:unknown)=>clearWebData(win!,text.parse(id)))
  register('data:info',()=>getDataInfo())
  register('data:choose',()=>chooseDataFolder(win!))
- register('data:migrate',(a:unknown)=>textConversion.dataMutation(()=>media.dataMutation(()=>quickLaunch.dataMutation(()=>{if(fileTransfer.getSnapshot().running)throw Error('请先停止文件快传服务再迁移数据目录');return migrateData(win!,z.string().min(3).max(1024).parse(a))}))))
- register('data:deleteOld',(a:unknown)=>textConversion.dataMutation(()=>media.dataMutation(()=>quickLaunch.dataMutation(()=>deleteOldData(text.parse(a))))))
+ register('data:migrate',(a:unknown)=>audio.dataMutation(()=>textConversion.dataMutation(()=>media.dataMutation(()=>quickLaunch.dataMutation(()=>{if(fileTransfer.getSnapshot().running)throw Error('请先停止文件快传服务再迁移数据目录');return migrateData(win!,z.string().min(3).max(1024).parse(a))})))))
+ register('data:deleteOld',(a:unknown)=>audio.dataMutation(()=>textConversion.dataMutation(()=>media.dataMutation(()=>quickLaunch.dataMutation(()=>deleteOldData(text.parse(a)))))))
  register('data:openFolder',()=>openDataFolder())
- register('data:backup',()=>textConversion.dataMutation(()=>media.dataMutation(()=>quickLaunch.backup(()=>backupData(win!)))))
- register('data:restore',()=>textConversion.dataMutation(()=>media.dataMutation(()=>quickLaunch.dataMutation(()=>{if(fileTransfer.getSnapshot().running)throw Error('请先停止文件快传服务并清理临时共享内容，再恢复数据备份');return restoreData(win!)}))))
+ register('data:backup',()=>audio.dataMutation(()=>textConversion.dataMutation(()=>media.dataMutation(()=>quickLaunch.backup(()=>backupData(win!))))))
+ register('data:restore',()=>audio.dataMutation(()=>textConversion.dataMutation(()=>media.dataMutation(()=>quickLaunch.dataMutation(()=>{if(fileTransfer.getSnapshot().running)throw Error('请先停止文件快传服务并清理临时共享内容，再恢复数据备份');return restoreData(win!)})))))
  register('data:exportLogs',()=>exportLogs(win!))
  register('data:clearLogs',()=>clearLogs())
  register('data:restart',()=>{app.relaunch();app.quit()})
@@ -246,7 +251,7 @@ function createWindow(){
 }
 app.whenReady().then(async()=>{
  if(!primaryInstance)return
- try{initStore();initMarker();initLog();await quickLaunch.initialize();await media.initialize();await textConversion.initialize();recordEvent('app-start');channels();createWindow();tray=createAppTray(showMainWindow,openPinnedTool,getPinnedTools(true));const prefs=getSettings().fileTransferPrefs;fileTransfer.setPrefs(prefs);void fileTransfer.cleanupAbandoned();if(win)fileTransfer.setWindow(win);fileTransfer.on('change',()=>{}); }
+ try{initStore();initMarker();initLog();await quickLaunch.initialize();await media.initialize();await audio.initialize();await textConversion.initialize();protocol.handle('tooldock-audio',request=>audio.previewer.respond(request));recordEvent('app-start');channels();createWindow();tray=createAppTray(showMainWindow,openPinnedTool,getPinnedTools(true));const prefs=getSettings().fileTransferPrefs;fileTransfer.setPrefs(prefs);void fileTransfer.cleanupAbandoned();if(win)fileTransfer.setWindow(win);fileTransfer.on('change',()=>{}); }
  catch(e){dialog.showErrorBox('ToolDock 初始化失败',e instanceof Error?e.stack||e.message:String(e));app.quit()}
 })
 app.on('window-all-closed',()=>{if(!tray||tray.isDestroyed())app.quit()})
@@ -256,7 +261,7 @@ app.on('before-quit',e=>{
  if(closing)return
  closing=true
  const stopTasks=(()=>{try{return getSettings().quickLaunchStopOnExit}catch{return false}})()
- void Promise.allSettled([fileTransfer.stop(),quickLaunch.shutdown(stopTasks),media.shutdown(),textConversion.shutdown()]).finally(()=>{
+ void Promise.allSettled([fileTransfer.stop(),quickLaunch.shutdown(stopTasks),media.shutdown(),audio.shutdown(),textConversion.shutdown()]).finally(()=>{
   try{disposeAllExports();closeStore()}catch{}
   tray?.destroy();tray=null;shutdownComplete=true;app.quit()
  })

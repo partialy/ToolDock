@@ -2,6 +2,7 @@ import type { Category, Tool, Settings, DataInfo, CryptoResult } from './models'
 import type {QuickLaunchAPI} from '../shared/quickLaunchModels'
 import type {DashboardSnapshot} from '../shared/dashboardModels'
 import type {MediaAPI} from '../shared/mediaModels'
+import type {AudioAPI} from '../shared/audioEditingModels'
 import type {TextConversionAPI} from '../shared/textConversionModels'
 import type {PipelineInput,PipelineSaved,PipelineSummary} from '../shared/codecModels'
 import type {KillInput,JunctionInput,JunctionPreview,JunctionResult,PortQueryResult,TerminateResult} from '../shared/commandModels'
@@ -10,6 +11,7 @@ export interface ToolDockAPI {
   dashboard:{snapshot():Promise<DashboardSnapshot>;onChange(cb:()=>void):()=>void}
   appNav:{ready():Promise<void>;onNavigate(cb:(target:{toolId:string;taskType?:string;taskId?:string})=>void):()=>void}
   media:MediaAPI
+  audio:AudioAPI
   textConversion:TextConversionAPI
   quickLaunch:QuickLaunchAPI
   commands:{queryPort(port:number):Promise<PortQueryResult>;terminate(input:KillInput):Promise<TerminateResult>;chooseDirectory():Promise<string|null>;validateJunction(input:JunctionInput):Promise<JunctionPreview>;createJunction(input:JunctionInput):Promise<JunctionResult>;openFolder(path:string):Promise<void>}

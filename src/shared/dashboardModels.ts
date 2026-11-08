@@ -1,5 +1,5 @@
 /** 工作台只读状态契约：不允许脚本正文、文件绝对路径、访问码或设备凭据穿过 IPC。 */
-export type DashboardSource='quick-launch'|'media-extract'|'media-subtitle'|'text-conversion'|'transfer-upload'|'transfer-download'|'model-download'
+export type DashboardSource='quick-launch'|'audio-export'|'media-extract'|'media-subtitle'|'text-conversion'|'transfer-upload'|'transfer-download'|'model-download'
 export type DashboardGroup='running'|'queued'|'completed'|'failed'|'ready'|'pending'|'paused'|'unknown'|'cancelled'
 export type DashboardModule='quick-launch'|'video-processing'|'file-transfer'
 export type DashboardTab='extract'|'subtitle'|'conversion'|'models'|'tasks'
