@@ -307,12 +307,6 @@ export class FileTransferService extends EventEmitter {
    req.on('close',()=>{this.subscribers.delete(res);clearInterval(keepalive)})
    return
   }
-  if(method==='POST'&&pathname==='/api/device/name'){
-   const b=await receiveJson(req,1024)
-   const name=String(b.name||'').trim().slice(0,40)
-   if(!name)return sendJson(res,400,{error:'设备名称不能为空'})
-   this.auth?.rename(device.id,name);this.emitChange();return sendJson(res,200,{ok:true})
-  }
   if(method==='GET'&&pathname==='/api/pool'){
    if(!this.prefs.allowPoolDownload)return sendJson(res,403,{error:'文件池下载未开启'})
    const parent=url.searchParams.get('parent'),offset=Number(url.searchParams.get('cursor')||'0')

@@ -1,6 +1,7 @@
 import {randomBytes,randomInt,timingSafeEqual} from 'node:crypto'
 import type {IncomingMessage,ServerResponse} from 'node:http'
 import type {DeviceInfo} from '../../../../src/shared/fileTransferModels'
+import {nextDeviceName} from './device-names'
 type Device=DeviceInfo&{token:string;expires:number}
 export class LanAuth{
  readonly pin=String(randomInt(0,1_000_000)).padStart(6,'0')
@@ -18,7 +19,8 @@ export class LanAuth{
   }
   this.attempts.delete(ip)
   const id=randomBytes(16).toString('hex'),token=randomBytes(32).toString('base64url')
-  const entry:Device={id,token,ip,agent:agent.slice(0,120),connectedAt:Date.now(),lastSeen:Date.now(),expires:Date.now()+12*60*60_000}
+  const name=nextDeviceName(new Set([...this.devices.values()].flatMap(d=>d.name?[d.name]:[])))
+  const entry:Device={id,token,ip,agent:agent.slice(0,120),name,connectedAt:Date.now(),lastSeen:Date.now(),expires:Date.now()+12*60*60_000}
   this.devices.set(id,entry)
   return this.asPublic(entry)
  }
@@ -33,7 +35,6 @@ export class LanAuth{
   if(v.ip!==ip)return null
   v.lastSeen=Date.now();return this.asPublic(v)
  }
- rename(id:string,name:string){const entry=this.devices.get(id);if(!entry)throw Error('设备不存在');entry.name=name.trim().slice(0,40)}
  list(){return [...this.devices.values()].map(v=>this.asPublic(v))}
  revoke(id:string){this.devices.delete(id)}
  clear(){this.devices.clear();this.attempts.clear()}

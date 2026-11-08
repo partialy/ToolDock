@@ -2,6 +2,9 @@ import './style.css'
 import {sha256} from '@noble/hashes/sha2.js'
 import {initPools} from './pools'
 import {bytesToHex} from '@noble/hashes/utils.js'
+import {icon} from './icons'
+import {toast} from './toast'
+import {anchorNavigation,backNavigation,initNavigation,recordNavigation,type Crumb,type MobileTab,type NavState} from './navigation'
 
 type Share={id:string;name:string;size:number;kind:'file'|'directory';rootId?:string;status:'ready'|'changed'|'missing'}
 type Up={id:string;name:string;size:number;received:number;status:string}
@@ -9,18 +12,17 @@ type Selection={key:string;file:File}
 type TransferJob={id:string;offset:number;file:File;relativeFolder:string;group:string;row:HTMLElement;button:HTMLButtonElement;paused:boolean;cancelled:boolean;running:boolean;finished:boolean}
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T
 const human=(n:number)=>n>=1024**3?(n/1024**3).toFixed(2)+' GiB':n>=1024**2?(n/1024**2).toFixed(1)+' MiB':n>=1024?(n/1024).toFixed(1)+' KiB':n+' B'
-const icon=(name:'file'|'download'|'upload'|'close'|'plus'|'check')=>{
- const s=document.createElementNS('http://www.w3.org/2000/svg','svg')
- const use=document.createElementNS('http://www.w3.org/2000/svg','use')
- use.setAttribute('href','#i-'+name);s.append(use);return s
-}
 const selected=new Map<string,Selection>()
 const selectedDownload=new Set<string>()
 const jobs=new Map<string,TransferJob>()
 const queued:TransferJob[]=[]
-let visibleShares:Share[]=[],rootShares:Share[]=[],crumbs:{id:string;name:string}[]=[],nextKey=0,active=0,uploadEnabled=false
+let visibleShares:Share[]=[],rootShares:Share[]=[],crumbs:Crumb[]=[],nextKey=0,active=0,uploadEnabled=false
+let mode:MobileTab='download'
+let navReady=false
+let treeSeq=0
 const knownShares=new Map<string,Share>()
-const err=(s:string)=>{$('error').textContent=s;$('error').hidden=!s}
+/** 所有操作错误统一走顶部轻提示，不再使用固定错误条。 */
+const err=(message:string)=>{if(message)toast.error(message)}
 const label=(status:string)=>({uploading:'上传中',paused:'已暂停',pending:'等待发布',accepted:'已进入文件池',rejected:'已取消',failed:'失败',cancelled:'已取消'} as Record<string,string>)[status]||status
 
 async function json(url:string,options:RequestInit={}):Promise<any>{
@@ -30,7 +32,11 @@ async function json(url:string,options:RequestInit={}):Promise<any>{
  return value
 }
 const post=(url:string,value:unknown)=>json(url,{method:'POST',body:JSON.stringify(value)})
-const pools=initPools(json,post,err)
+const pools=initPools(json,post,err,{
+ record:()=>recordNav(),
+ back:()=>backNavigation(),
+ backSteps:(steps:number)=>backNavigation(steps)
+})
 const cacheKey='tooldock-pool-resume-v1'
 function cacheRead():Record<string,{id:string;group:string;relativeFolder:string}>{try{return JSON.parse(sessionStorage.getItem(cacheKey)||'{}')}catch{return {}}}
 function cacheWrite(data:Record<string,{id:string;group:string;relativeFolder:string}>){try{sessionStorage.setItem(cacheKey,JSON.stringify(data))}catch{}}
@@ -56,14 +62,46 @@ const button=(text:string,mode='normal')=>{
  const b=document.createElement('button');b.type='button';b.className='mini-button'+(mode==='remove'?' remove':'');b.setAttribute('aria-label',text);b.title=text
  return b
 }
-function currentPanel(mode:'pool'|'download'|'messages'){
- $('panel-pool').hidden=mode!=='pool';$('panel-download').hidden=mode!=='download';$('panel-messages').hidden=mode!=='messages'
- $('panel-upload').hidden=true
- for(const t of ['pool','download','messages']){$('tab-'+t).classList.toggle('active',t===mode);$('tab-'+t).setAttribute('aria-selected',String(t===mode))}
- if(mode==='pool')void pools.refreshPool().catch(e=>err(String(e)))
- if(mode==='messages')void pools.refreshMessages().catch(e=>err(String(e)))
+function renderDeviceName(name?:string){
+ const text='当前设备：'+(name||'未命名')
+ document.querySelectorAll<HTMLElement>('[data-device-name]').forEach(node=>{node.textContent=text})
 }
- function renderDownloadSelection(){
+function currentPanel(next:MobileTab,refresh=true){
+ mode=next
+ $('panel-pool').hidden=next!=='pool';$('panel-download').hidden=next!=='download';$('panel-messages').hidden=next!=='messages'
+ $('panel-upload').hidden=true
+ for(const t of ['pool','download','messages'] as MobileTab[]){
+  const tab=$<HTMLButtonElement>('tab-'+t)
+  const active=t===next
+  tab.classList.toggle('active',active)
+  if(active)tab.setAttribute('aria-current','page');else tab.removeAttribute('aria-current')
+ }
+ if(refresh&&next==='pool')void pools.refreshPool().catch(e=>err(String(e)))
+ if(refresh&&next==='messages')void pools.refreshMessages().catch(e=>err(String(e)))
+}
+function snapshot():NavState{return {tab:mode,shares:crumbs.map(item=>({...item})),pool:pools.snapshot()}}
+function recordNav(){recordNavigation(snapshot())}
+function anchorNav(){anchorNavigation(snapshot())}
+async function applyShares(path:Crumb[]){
+ const seq=++treeSeq
+ crumbs=path.map(item=>({...item}))
+ try{
+  const next=crumbs.length?await loadPage(crumbs[crumbs.length-1].id):rootShares
+  if(seq!==treeSeq)return
+  visibleShares=next
+ }catch(e){
+  if(seq!==treeSeq)return
+  crumbs=[];visibleShares=rootShares;err(String(e))
+ }
+ renderShares()
+}
+/** 手机返回按钮：按历史快照还原一级 tab、目录层级、上传抽屉与文本查看器。 */
+async function applyNav(state:NavState){
+ currentPanel(state.tab||'download',false)
+ await applyShares(state.shares||[])
+ await pools.restore(state.pool||{trail:[],upload:false,viewer:null})
+}
+function renderDownloadSelection(){
  const matches=[...selectedDownload].map(id=>knownShares.get(id)).filter((s):s is Share=>Boolean(s&&s.status==='ready'))
  $('selection-summary').textContent=matches.length?'已选 '+matches.length+' 项 · 文件合计 '+human(matches.reduce((n,s)=>n+(s.kind==='file'?s.size:0),0)):'尚未选择文件'
  const ready=visibleShares.filter(s=>s.status==='ready')
@@ -94,14 +132,18 @@ function renderBreadcrumbs(){
  items.forEach((part,i)=>{
   if(i){const arrow=document.createElement('span');arrow.textContent='›';arrow.className='crumb-separator';root.append(arrow)}
   const b=document.createElement('button');b.type='button';b.textContent=part.name;b.className='crumb'+(i===items.length-1?' current':'')
-  b.onclick=()=>void browseAt(i-1).catch(e=>err(String(e)))
+  // 面包屑向上导航复用历史后退，返回键与点击行为保持一致。
+  b.onclick=()=>{const steps=crumbs.length-i;if(steps>0)backNavigation(steps)}
   root.append(b)
  })
 }
 async function browseAt(index:number){
+ const seq=++treeSeq
  if(index<0){crumbs=[];visibleShares=rootShares;renderShares();return}
  const target=crumbs[index]
  const entries=await loadPage(target.id)
+ // 返回键可能在上一次请求未完成时切换目录，过期结果直接丢弃。
+ if(seq!==treeSeq)return
  crumbs=crumbs.slice(0,index+1);visibleShares=entries;renderShares()
 }
 async function loadPage(parentId:string){
@@ -115,9 +157,11 @@ async function loadPage(parentId:string){
  return items
 }
 async function openFolder(folder:Share){
+ const seq=++treeSeq
  const entries=await loadPage(folder.id)
+ if(seq!==treeSeq)return
  crumbs.push({id:folder.id,name:folder.name})
- visibleShares=entries;renderShares()
+ visibleShares=entries;renderShares();recordNav()
 }
 function renderShares(){
  const container=$('shares');container.replaceChildren()
@@ -140,7 +184,8 @@ function renderShares(){
   if(file.kind==='directory'){
    link.onclick=e=>{e.preventDefault();void downloadArchive([file.id]).catch(e=>err(String(e)))}
   }else link.download=file.name
-  link.append(icon('download'));link.title='下载 '+file.name
+  link.append(icon('download'))
+  link.title='下载 '+file.name
   link.setAttribute('aria-label','下载 '+file.name)
   if(file.status!=='ready'){link.removeAttribute('href');link.setAttribute('aria-disabled','true')}
   const {info}=fileDetails(file.name,file.kind==='directory'?'文件夹 · 点击进入':human(file.size)+(file.status==='ready'?'':' · 文件不可用'))
@@ -181,11 +226,18 @@ function addFiles(files:File[]){
 async function login(kind:'pin'|'token',value:string){
  await post('/api/auth',{kind,value})
  history.replaceState(null,'',location.pathname)
+ await enterWorkspace()
+}
+async function enterWorkspace(){
  $('login').hidden=true;$('workspace').hidden=false;err('')
- await refresh();connectEvents()
+ if(!navReady){navReady=true;initNavigation(state=>void applyNav(state))}
+ currentPanel('download',false)
+ await refresh()
+ connectEvents()
 }
 async function refresh(){
  const status=await json('/api/status')
+ renderDeviceName(status.device?.name)
  await pools.loadStatus(status)
  await pools.refreshMessages()
  rootShares=status.downloadAllowed?status.shares as Share[]:[]
@@ -293,11 +345,11 @@ async function upload(job:TransferJob){
  }
 }
 $<HTMLAnchorElement>('download-selected').addEventListener('click',e=>{const selected=[...selectedDownload].map(id=>knownShares.get(id)).filter((x):x is Share=>Boolean(x));if(selected.length===1&&selected[0].kind==='file')return;e.preventDefault();if(selected.length)void downloadArchive(selected.map(x=>x.id)).catch(e=>err(String(e)))})
-$('tab-download').addEventListener('click',()=>currentPanel('download'))
-$('tab-pool').addEventListener('click',()=>currentPanel('pool'))
-$('tab-messages').addEventListener('click',()=>currentPanel('messages'))
-$('pool-fab').addEventListener('click',()=>{$('panel-upload').hidden=false})
-$('upload-close').addEventListener('click',()=>{$('panel-upload').hidden=true})
+$('tab-download').addEventListener('click',()=>{currentPanel('download');anchorNav()})
+$('tab-pool').addEventListener('click',()=>{currentPanel('pool');anchorNav()})
+$('tab-messages').addEventListener('click',()=>{currentPanel('messages');anchorNav()})
+$('pool-fab').addEventListener('click',()=>{if(!uploadEnabled)return;$('panel-upload').hidden=false;recordNav()})
+$('upload-close').addEventListener('click',()=>backNavigation())
 $('login-form').addEventListener('submit',e=>{e.preventDefault();void login('pin',($<HTMLInputElement>('pin')).value).catch(e=>err(String(e)))})
 $('refresh').addEventListener('click',()=>void refresh().catch(e=>err(String(e))))
 $('select-all').addEventListener('click',()=>{
@@ -307,7 +359,7 @@ $('select-all').addEventListener('click',()=>{
  else for(const item of files)selectedDownload.add(item.id)
  renderShares()
 })
- $('pick-files').addEventListener('click',()=>{if(uploadEnabled)$<HTMLInputElement>('choose').click()})
+$('pick-files').addEventListener('click',()=>{if(uploadEnabled)$<HTMLInputElement>('choose').click()})
 $('pick-folder').addEventListener('click',()=>{if(uploadEnabled)$<HTMLInputElement>('choose-folder').click()})
 $('choose-folder').addEventListener('change',()=>{const input=$<HTMLInputElement>('choose-folder');addFiles([...(input.files||[])]);input.value=''})
 $('choose').addEventListener('change',()=>{
@@ -321,16 +373,23 @@ $('upload').addEventListener('click',()=>{
  if(!files.length||!uploadEnabled)return
  selected.clear();renderSelectedUploads();enqueue(files)
 })
-const fragment=new URLSearchParams(location.hash.slice(1)).get('token')
-if(fragment)void login('token',fragment).catch(e=>{err(String(e));history.replaceState(null,'',location.pathname)})
-else void json('/api/status').then(()=>{$('login').hidden=true;$('workspace').hidden=false;return refresh().then(()=>connectEvents())}).catch(()=>{})
 let live:EventSource|null=null
+let everConnected=false,online=false
 function connectEvents(){
  if(live)return
  live=new EventSource('/api/events')
  live.addEventListener('change',()=>{pools.scheduleRefresh()})
- live.addEventListener('connected',()=>{$('connection-status').textContent='已连接主设备'})
- live.onerror=()=>{$('connection-status').textContent='连接中断，正在重连...'}
+ live.addEventListener('connected',()=>{
+  if(everConnected&&!online)toast.success('已重新连接')
+  everConnected=true;online=true
+ })
+ live.onerror=()=>{
+  if(online){toast.warning('连接中断，正在重连…')}
+  online=false
+ }
 }
+const fragment=new URLSearchParams(location.hash.slice(1)).get('token')
+if(fragment)void login('token',fragment).catch(e=>{err(String(e));history.replaceState(null,'',location.pathname)})
+else void json('/api/status').then(()=>enterWorkspace()).catch(()=>{})
 setInterval(()=>{if(!$('workspace').hidden){void syncUploads().catch(()=>{});if(!live)connectEvents()}},3000)
 setInterval(()=>{if(!$('workspace').hidden)void refresh().catch(()=>{})},15000)

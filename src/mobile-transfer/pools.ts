@@ -1,31 +1,39 @@
+import {icon} from './icons'
+import type {Crumb,PoolUiState} from './navigation'
+
 type Json=(url:string,options?:RequestInit)=>Promise<any>
 type PoolItem={id:string;name:string;kind:'file'|'directory';size:number;parentId:string|null;deviceName:string;createdAt:number}
 type PoolPage={items:PoolItem[];nextCursor:string|null;total:number;usedBytes:number;itemCount:number}
 type Message={id:string;deviceName:string;charCount:number;bytes:number;createdAt:number;kind:'text'|'file';preview:string;text?:string}
+type PoolsNav={record:()=>void;back:()=>void;backSteps:(steps:number)=>void}
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T
 const human=(n:number)=>n>=1024**3?(n/1024**3).toFixed(2)+' GiB':n>=1024**2?(n/1024**2).toFixed(1)+' MiB':n>=1024?(n/1024).toFixed(1)+' KiB':n+' B'
 const element=(tag:string,className='',text='')=>{const e=document.createElement(tag);e.className=className;e.textContent=text;return e}
 const button=(label:string,className='mini-button')=>{const b=element('button',className,label) as HTMLButtonElement;b.type='button';return b}
-export function initPools(json:Json,post:(url:string,data:unknown)=>Promise<any>,onError:(message:string)=>void){
- const selected=new Set<string>(),trail:{id:string;name:string}[]=[]
+const setBadge=(id:string,count:number)=>{const badge=$(id);badge.textContent=String(count);badge.hidden=!count}
+export function initPools(json:Json,post:(url:string,data:unknown)=>Promise<any>,onError:(message:string)=>void,nav:PoolsNav){
+ const selected=new Set<string>(),trail:Crumb[]=[]
  let page:PoolPage={items:[],nextCursor:null,total:0,usedBytes:0,itemCount:0}
  let messages:Message[]=[],messageTotal=0
- let pendingRefresh=0
+ let poolAllowed=true
  let currentText:string|null=null,viewerOffset=0,viewerNext=0,viewerDone=true
  let viewerStack:number[]=[]
- let busy=false
+ let fetchSeq=0
  const poolRoot=$('pool-files'),messageRoot=$('messages-list')
  const poolParent=()=>trail.at(-1)?.id||null
  const query=()=>new URLSearchParams({...(poolParent()?{parent:poolParent()!}:{}),q:$<HTMLInputElement>('pool-search').value,sort:$<HTMLSelectElement>('pool-sort').value})
  const updateProgress=()=>{
-  $('pool-count').textContent=String(page.itemCount)
+  setBadge('pool-count',page.itemCount)
   $('pool-usage').textContent=human(page.usedBytes)+' / '+human(Number(($('pool-progress') as HTMLElement).dataset.limit||20*1024**3))
  }
  async function refreshPool(append=false){
-  if(busy)return
+  if(!poolAllowed){poolRoot.replaceChildren(element('div','empty','主设备暂未开放文件池下载'));return}
+  const seq=++fetchSeq
   const p=query()
   if(append&&page.nextCursor)p.set('cursor',page.nextCursor)
   const result=await json('/api/pool?'+p) as PoolPage
+  // 返回键可能在上一次请求未完成时切换目录，过期结果直接丢弃。
+  if(seq!==fetchSeq)return
   page=append?{...result,items:[...page.items,...result.items]}:result
   renderPool()
  }
@@ -34,11 +42,9 @@ export function initPools(json:Json,post:(url:string,data:unknown)=>Promise<any>
   ;($('pool-progress') as HTMLElement).dataset.limit=String(stats.limitBytes||20*1024**3)
   const pct=Math.max(0,Math.min(100,Math.round((stats.usedBytes||0)/(stats.limitBytes||20*1024**3)*100)))
   $('pool-progress').style.width=pct+'%'
-  if(!status.poolDownloadAllowed) {
-   poolRoot.replaceChildren(element('div','empty','主设备暂未开放文件池下载'))
-  }else await refreshPool()
-  $('connection-status').textContent='文件池 '+human(stats.usedBytes||0)+' / '+human(stats.limitBytes||20*1024**3)
-  if(status.device?.name)$<HTMLInputElement>('device-name').value=status.device.name
+  poolAllowed=Boolean(status.poolDownloadAllowed)
+  if(!poolAllowed)poolRoot.replaceChildren(element('div','empty','主设备暂未开放文件池下载'))
+  else await refreshPool()
  }
  const poolBreadcrumbs=()=>{
   const root=$('pool-breadcrumbs');root.replaceChildren()
@@ -46,7 +52,8 @@ export function initPools(json:Json,post:(url:string,data:unknown)=>Promise<any>
   all.forEach((item,index)=>{
    if(index)root.append(element('span','crumb-separator','›'))
    const b=button(item.name,'crumb'+(index===all.length-1?' current':''))
-   b.onclick=()=>{trail.splice(index);selected.clear();void refreshPool().catch(e=>onError(String(e)))}
+   // 面包屑向上导航复用历史后退，返回键与点击行为保持一致。
+   b.onclick=()=>{const steps=trail.length-index;if(steps>0)nav.backSteps(steps)}
    root.append(b)
   })
  }
@@ -60,22 +67,28 @@ export function initPools(json:Json,post:(url:string,data:unknown)=>Promise<any>
   name.append(element('div','name',item.name),element('div','meta',(item.kind==='directory'?'文件夹':human(item.size))+' · '+item.deviceName+' · '+new Date(item.createdAt).toLocaleString()))
   const open=button('','file-browse')
   open.append(ico,name)
-  if(item.kind==='directory')open.onclick=()=>{trail.push({id:item.id,name:item.name});selected.clear();void refreshPool().catch(e=>onError(String(e)))}
+  if(item.kind==='directory')open.onclick=()=>{
+   trail.push({id:item.id,name:item.name});selected.clear()
+   nav.record()
+   void refreshPool().catch(e=>onError(String(e)))
+  }
   else open.onclick=()=>{
    const ext=item.name.slice(item.name.lastIndexOf('.')).toLowerCase()
    const previewable=['.png','.jpg','.jpeg','.gif','.webp','.txt','.md','.json','.jsonl','.log','.csv','.xml','.yaml','.yml','.ini','.conf','.srt','.vtt','.lrc'].includes(ext)&&item.size<=8*1024**2
    if(previewable)window.open('/api/pool/preview/'+item.id,'_blank','noopener,noreferrer')
    else window.location.assign('/api/pool/files/'+item.id)
   }
-  const down=button('↓','download-button')
-  down.setAttribute('aria-label','下载 '+item.name)
+  const down=document.createElement('button')
+  down.type='button';down.className='download-button'
+  down.setAttribute('aria-label','下载 '+item.name);down.title='下载 '+item.name
+  down.append(icon('download'))
   down.onclick=()=>{if(item.kind==='directory')void downloadArchive([item.id]);else window.location.assign('/api/pool/files/'+item.id)}
   row.append(checkbox,open,down)
   return row
  }
  function renderPool(){
   poolBreadcrumbs();poolRoot.replaceChildren()
-  $('pool-count').textContent=String(page.itemCount)
+  setBadge('pool-count',page.itemCount)
   const limit=Number(($('pool-progress') as HTMLElement).dataset.limit||20*1024**3)
   $('pool-usage').textContent=human(page.usedBytes)+' / '+human(limit)
   $('pool-progress').style.width=Math.min(100,Math.round(page.usedBytes/limit*100))+'%'
@@ -122,7 +135,7 @@ export function initPools(json:Json,post:(url:string,data:unknown)=>Promise<any>
    card.append(element('p','message-text',item.preview+'…'))
    card.append(element('p','meta',item.charCount.toLocaleString()+' 字符 · '+human(item.bytes)+' · 临时 TXT'))
    const tools=element('div','message-tools')
-   const view=button('打开查看');view.onclick=()=>void openViewer(item)
+   const view=button('打开查看');view.onclick=()=>void openViewer(item).catch(e=>onError(String(e)))
    const download=element('a','mini-button','下载 TXT') as HTMLAnchorElement
    download.href='/api/messages/'+item.id+'/download';download.download='message.txt'
    tools.append(view,download);card.append(tools)
@@ -130,7 +143,7 @@ export function initPools(json:Json,post:(url:string,data:unknown)=>Promise<any>
   return card
  }
  function renderMessages(){
-  $('messages-count').textContent=String(messageTotal)
+  setBadge('messages-count',messageTotal)
   messageRoot.replaceChildren()
   if(!messages.length){messageRoot.append(element('div','empty','暂时没有消息，输入文字即可分享给所有设备'));return}
   messages.forEach(item=>messageRoot.append(messageRow(item)))
@@ -156,12 +169,19 @@ export function initPools(json:Json,post:(url:string,data:unknown)=>Promise<any>
   $<HTMLButtonElement>('viewer-prev').disabled=!viewerStack.length
   $<HTMLButtonElement>('viewer-next').disabled=viewerDone
  }
- async function openViewer(item:Message){
+ async function openViewer(item:Message,record=true){
   currentText=item.id;viewerStack=[];showViewer(true)
+  if(record)nav.record()
   $('viewer-info').textContent=item.charCount.toLocaleString()+' 字符 · '+human(item.bytes)
   $<HTMLAnchorElement>('viewer-download').href='/api/messages/'+item.id+'/download'
   $('viewer-hits').replaceChildren();$<HTMLInputElement>('viewer-search').value=''
   try{await loadViewer(0)}catch(e){onError(String(e))}
+ }
+ async function restoreViewer(id:string){
+  if(!messages.length)await refreshMessages()
+  const item=messages.find(message=>message.id===id)
+  if(!item){currentText=null;showViewer(false);onError('消息已被清理');return}
+  await openViewer(item,false)
  }
  async function searchViewer(){
   if(!currentText)return
@@ -179,6 +199,17 @@ export function initPools(json:Json,post:(url:string,data:unknown)=>Promise<any>
   if(timer)clearTimeout(timer)
   timer=setTimeout(()=>{void Promise.allSettled([refreshPool(),refreshMessages()])},220)
  }
+ /** 当前手机页二级状态：目录层级、上传抽屉、文本查看器，供历史快照与还原使用。 */
+ function snapshot():PoolUiState{return {trail:trail.map(item=>({...item})),upload:!$('panel-upload').hidden,viewer:currentText}}
+ async function restore(ui:PoolUiState){
+  trail.splice(0,trail.length,...ui.trail.map(item=>({...item})))
+  selected.clear()
+  $('panel-upload').hidden=!ui.upload
+  if(!$('panel-pool').hidden&&poolAllowed)await refreshPool().catch(e=>onError(String(e)))
+  if(!$('panel-messages').hidden)await refreshMessages().catch(e=>onError(String(e)))
+  if(ui.viewer)await restoreViewer(ui.viewer)
+  else{currentText=null;showViewer(false)}
+ }
  $('pool-refresh').onclick=()=>void refreshPool().catch(e=>onError(String(e)))
  $('pool-search').addEventListener('input',()=>scheduleRefresh())
  $('pool-sort').addEventListener('change',()=>void refreshPool().catch(e=>onError(String(e))))
@@ -189,12 +220,10 @@ export function initPools(json:Json,post:(url:string,data:unknown)=>Promise<any>
  $('messages-refresh').onclick=()=>void refreshMessages().catch(e=>onError(String(e)))
  $('message-send').onclick=()=>void sendMessage()
  $('message-input').addEventListener('keydown',e=>{const key=e as KeyboardEvent;if(key.key==='Enter'&&(key.ctrlKey||key.metaKey)){e.preventDefault();void sendMessage()}})
- $('viewer-close').onclick=()=>{currentText=null;showViewer(false)}
+ $('viewer-close').onclick=()=>nav.back()
  $('viewer-next').onclick=()=>{if(currentText&&!viewerDone){viewerStack.push(viewerOffset);void loadViewer(viewerNext)}}
  $('viewer-prev').onclick=()=>{if(currentText&&viewerStack.length){const previous=viewerStack.pop()!;void loadViewer(previous)}}
  $('viewer-find').onclick=()=>void searchViewer()
  $('viewer-copy').onclick=()=>{if(currentText)void copyText(currentText)}
- $('edit-device').onclick=()=>{$('device-editor').hidden=!$('device-editor').hidden}
- $('save-device').onclick=()=>{const name=$<HTMLInputElement>('device-name').value.trim();if(!name)return;void post('/api/device/name',{name}).then(()=>{$('device-editor').hidden=true}).catch(e=>onError(String(e)))}
- return {refreshPool,refreshMessages,scheduleRefresh,loadStatus}
+ return {refreshPool,refreshMessages,scheduleRefresh,loadStatus,snapshot,restore}
 }
