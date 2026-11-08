@@ -13,6 +13,7 @@ export function NotificationProvider({children,position,onOpenTransfer,previewPo
  const [items,setItems]=useState<Item[]>([])
  const counter=useRef(0),timers=useRef<Map<number,ReturnType<typeof setTimeout>>>(new Map())
  const lastPosition=useRef<NotificationPosition|null>(null)
+ const lastTransferCounts=useRef<{files:number;messages:number}|null>(null)
  const {off,reduced}=useMicroMotion()
  const dismiss=useCallback((id:number)=>{setItems(a=>a.filter(t=>t.id!==id));const timer=timers.current.get(id);if(timer)clearTimeout(timer);timers.current.delete(id)},[])
  const push=useCallback<Push>(item=>{
@@ -26,7 +27,13 @@ export function NotificationProvider({children,position,onOpenTransfer,previewPo
   if(!item.sticky&&item.level!=='error')timers.current.set(id,setTimeout(()=>dismiss(id),6000))
  },[dismiss])
  useEffect(()=>{
-  const offPending=window.toolDock.transfer.onPending((data)=>push({title:'文件等待接收',description:'来自局域网的文件「'+data.name+'」已经上传完成，需要电脑确认接收。',level:'warning',action:onOpenTransfer,dedupeKey:'transfer-pending',sticky:true}))
+  const offPending=window.toolDock.transfer.onChange((data)=>{
+   if(!data.running){lastTransferCounts.current=null;return}
+   const next={files:data.pool.fileCount,messages:data.pool.messageCount},prior=lastTransferCounts.current
+   if(prior&&next.files>prior.files)push({title:'文件池新增文件',description:'共享文件池新增 '+(next.files-prior.files)+' 个条目，可直接访问。',level:'info',action:onOpenTransfer,dedupeKey:'transfer-pool-new'})
+   if(prior&&next.messages>prior.messages)push({title:'收到共享消息',description:'文字消息池新增 '+(next.messages-prior.messages)+' 条消息。',level:'info',dedupeKey:'transfer-message-new'})
+   lastTransferCounts.current=next
+  })
   const demo=(event:Event)=>push((event as CustomEvent<Parameters<Push>[0]>).detail)
   window.addEventListener('tooldock:toast',demo)
   return()=>{offPending();window.removeEventListener('tooldock:toast',demo)}
@@ -55,7 +62,7 @@ export function NotificationProvider({children,position,onOpenTransfer,previewPo
      <div className="flex gap-2.5">
       <span className="mt-0.5 text-indigo-400">{item.level==='error'||item.level==='warning'?<AlertTriangle size={19}/>:item.level==='success'?<CheckCircle2 size={19}/>:item.level==='info'?<Info size={19}/>:<Bell size={19}/>}</span>
       <div className="min-w-0 flex-1"><div className="text-sm font-semibold">{item.title}</div><p className="mt-1 break-words text-xs leading-5 muted">{item.description}</p>
-       {item.action&&<button className="pointer-events-auto mt-2 text-xs font-medium text-indigo-400 hover:underline" onClick={()=>{item.action?.();dismiss(item.id)}}>查看待接收文件</button>}
+       {item.action&&<button className="pointer-events-auto mt-2 text-xs font-medium text-indigo-400 hover:underline" onClick={()=>{item.action?.();dismiss(item.id)}}>打开文件快传</button>}
       </div>
       <button aria-label="关闭通知" className="pointer-events-auto self-start rounded-lg p-1 hover:bg-[var(--hover)]" onClick={()=>dismiss(item.id)}><X size={15}/></button>
      </div>

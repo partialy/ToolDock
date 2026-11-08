@@ -18,10 +18,12 @@ export class FilePool {
  private folders=new Map<string,string>()
  private root:string|null=null
  private stopping=false
+ private clearing=false
+ private generation=0
  private controllers=new Set<AbortController>()
  constructor(private changed:()=>void){}
- async open(root:string){this.items.clear();this.folders.clear();this.root=path.join(root,'pool');this.stopping=false;await fs.mkdir(path.join(this.root,'files'),{recursive:true})}
- get ready(){return Boolean(this.root)&&!this.stopping}
+ async open(root:string){this.generation++;this.items.clear();this.folders.clear();this.root=path.join(root,'pool');this.stopping=false;this.clearing=false;await fs.mkdir(path.join(this.root,'files'),{recursive:true})}
+ get ready(){return Boolean(this.root)&&!this.stopping&&!this.clearing}
  get usedBytes(){let sum=0;for(const item of this.items.values())if(item.kind==='file')sum+=item.size;return sum}
  get itemCount(){return this.items.size}
  rootIds(){return [...this.items.values()].filter(item=>!item.parentId).map(item=>item.id)}
@@ -66,8 +68,9 @@ export class FilePool {
   if(this.items.size>=MAX_ITEMS)throw Error('文件池条目数已满')
   const parentId=relativeFolder?this.folderPath(relativeFolder,src,group):null
   const id=randomUUID(),location=path.join(this.root!,'files',id)
-  const original=safeFilename(name)
+  const original=safeFilename(name),generation=this.generation
   await fs.rename(temp,location)
+  if(generation!==this.generation||!this.ready){await fs.rm(location,{force:true}).catch(()=>{});throw Error('文件池已清空，文件未发布')}
   this.items.set(id,{id,name:original,kind:'file',size,parentId,createdAt:Date.now(),deviceId:src.deviceId,deviceName:src.deviceName,file:location})
   this.changed();return id
  }
@@ -104,7 +107,13 @@ export class FilePool {
    }finally{this.controllers.delete(controller);release();await fs.rm(staging,{force:true}).catch(()=>{})}
   }
   for(const item of paths){
-   try{if(!path.isAbsolute(item)||item.startsWith('\\\\'))throw Error('仅支持本地绝对路径');await walk(path.resolve(item),null,0)}
+   try{
+    if(!path.isAbsolute(item)||item.startsWith('\\\\'))throw Error('仅支持本地绝对路径')
+    const original=await fs.realpath(path.resolve(item))
+    const related=(a:string,b:string)=>{const rel=path.relative(a,b);return rel===''||(!rel.startsWith('..'+path.sep)&&rel!=='..'&&!path.isAbsolute(rel))}
+    if(related(original,this.root!)||related(this.root!,original))throw Error('不能将文件池自身、子目录或上级目录添加进文件池')
+    await walk(original,null,0)
+   }
    catch(e){result.errors.push(path.basename(item)+': '+(e instanceof Error?e.message:String(e)))}
   }
   return result
@@ -118,31 +127,46 @@ export class FilePool {
   this.changed();return unique
  }
  async clear(){
+  this.clearing=true;this.generation++
   for(const controller of this.controllers)controller.abort()
   this.controllers.clear()
-  for(const item of this.items.values())if(item.file)await fs.rm(item.file,{force:true}).catch(()=>{})
-  this.items.clear();this.folders.clear();this.changed()
+  try{
+   for(const item of this.items.values())if(item.file)await fs.rm(item.file,{force:true}).catch(()=>{})
+   this.items.clear();this.folders.clear();this.changed()
+  }finally{this.clearing=false}
  }
  async close(){this.stopping=true;await this.clear();this.root=null}
  entries(ids:string[]){
   const selected=new Set(ids)
   for(const id of selected)this.get(id)
-  const result:RecordItem[]=[]
-  const visit=(item:RecordItem,rel:string,depth:number)=>{
+  const result:RecordItem[]=[],used=new Set<string>()
+  const unique=(parent:string,name:string,kind:'file'|'directory')=>{
+   const ext=kind==='file'?path.extname(name):'',stem=name.slice(0,name.length-ext.length)
+   let index=0,next=name
+   const key=()=>((parent?parent+'/':'')+next).toLocaleLowerCase()
+   while(used.has(key()))next=stem+' ('+(++index)+')'+ext
+   used.add(key())
+   return (parent?parent+'/':'')+next
+  }
+  const visit=(item:RecordItem,parent:string,depth:number)=>{
    if(depth>32||result.length>=MAX_ITEMS)throw Error('文件夹打包数量或层级超限')
-   result.push({...item,name:rel})
-   if(item.kind==='directory')for(const child of this.items.values())if(child.parentId===item.id)visit(child,rel+'/'+child.name,depth+1)
+   const display=unique(parent,item.name,item.kind)
+   result.push({...item,name:display})
+   if(item.kind==='directory')for(const child of this.items.values())if(child.parentId===item.id)visit(child,display,depth+1)
   }
   for(const id of selected){
    let current=this.get(id).parentId,skip=false
    while(current){if(selected.has(current)){skip=true;break}current=this.get(current).parentId}
-   if(!skip)visit(this.get(id),this.get(id).name,0)
+   if(!skip)visit(this.get(id),'',0)
   }
   return result
  }
  async save(ids:string[],destination:string){
   if(!this.ready)throw Error('文件池未运行')
   const stat=await fs.stat(destination);if(!stat.isDirectory())throw Error('保存目标必须是文件夹')
+  const target=await fs.realpath(destination),root=await fs.realpath(this.root!)
+  const relative=path.relative(root,target)
+  if(relative===''||(!relative.startsWith('..')&&!path.isAbsolute(relative)))throw Error('不能保存到会被清理的文件池临时目录')
   const controller=new AbortController();this.controllers.add(controller)
   const output:string[]=[]
   const unique=async(base:string,name:string,isDirectory:boolean)=>{
@@ -163,6 +187,7 @@ export class FilePool {
    }else if(item.file){
     const temp=path.join(base,'.tooldock-save-'+randomUUID()+'.part')
     try{await pipeline(createReadStream(item.file),createWriteStream(temp,{flags:'wx',mode:0o600}),{signal:controller.signal})
+     if(controller.signal.aborted||this.stopping)throw Error('保存已取消')
      await fs.link(temp,dest);output.push(dest)
     }finally{await fs.rm(temp,{force:true}).catch(()=>{})}
    }

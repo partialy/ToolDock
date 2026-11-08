@@ -61,15 +61,6 @@ export class FileTransferService extends EventEmitter {
   this.emitChange()
   return this.getPrefs()
  }
- async chooseDirectory(win:BrowserWindow){
-  const x=await dialog.showOpenDialog(win,{title:'选择接收文件目录',properties:['openDirectory','createDirectory']})
-  if(x.canceled||!x.filePaths[0])return null
-  const folder=path.resolve(x.filePaths[0])
-  if(!(await fs.stat(folder)).isDirectory())throw Error('请选择有效的目录')
-  await fs.access(folder)
-  this.prefs.receiveDirectory=folder
-  this.emitChange();return folder
- }
  getInterfaces(){return interfaces()}
  getSnapshot():TransferSnapshot{
   const url=this.server&&this.address&&this.port?'http://'+this.address+':'+this.port:null
@@ -79,15 +70,46 @@ export class FileTransferService extends EventEmitter {
    devices:this.auth?.list()||[],tasks:[...this.tasks.values()],prefs:this.getPrefs(),pool:{usedBytes:this.pool.usedBytes,reservedBytes:this.activeUploadBytes()+this.pendingReservationBytes,limitBytes:this.prefs.maxTempBytes,messageBytes:this.messages.usedBytes,fileCount:this.pool.itemCount,messageCount:this.messages.list().total}}
  }
  private emitChange(){this.emit('change');if(this.window&&!this.window.isDestroyed())this.window.webContents.send('transfer:changed',this.getSnapshot());const message='id: '+(++this.revision)+'\nevent: change\ndata: {}\n\n';for(const res of this.subscribers)try{res.write(message)}catch{this.subscribers.delete(res)}}
+ async previewPool(id:string){
+  const f=this.pool.file(id),ext=path.extname(f.name).toLowerCase()
+  const mime:Record<string,string>={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.gif':'image/gif','.webp':'image/webp'}
+  const texts=new Set(['.txt','.md','.json','.jsonl','.log','.csv','.xml','.yaml','.yml','.ini','.conf','.srt','.vtt','.lrc'])
+  if(!mime[ext]&&!texts.has(ext))throw Error('此文件格式不支持在线预览，可直接下载')
+  if(f.size>8*1024**2)throw Error('预览仅支持 8 MiB 以内文件，请下载后查看')
+  const buffer=await fs.readFile(f.file)
+  if(mime[ext]){
+   const ok=(ext==='.png'&&buffer.subarray(0,8).equals(Buffer.from('89504e470d0a1a0a','hex')))
+    ||(['.jpg','.jpeg'].includes(ext)&&buffer[0]===0xff&&buffer[1]===0xd8&&buffer[2]===0xff)
+    ||(ext==='.gif'&&['GIF87a','GIF89a'].includes(buffer.toString('ascii',0,6)))
+    ||(ext==='.webp'&&buffer.toString('ascii',0,4)==='RIFF'&&buffer.toString('ascii',8,12)==='WEBP')
+   if(!ok)throw Error('文件实际格式与扩展名不符，拒绝预览')
+   return {kind:'image' as const,mime:mime[ext],data:buffer.toString('base64')}
+  }
+  return {kind:'text' as const,mime:'text/plain; charset=utf-8',data:buffer.toString('utf8')}
+ }
  listPool(parentId:string|null=null,cursor=0,search='',sort:'newest'|'oldest'|'name'|'size'='newest'){return this.pool.list(parentId,cursor,search,sort)}
  listMessages(after=0,limit=100){return this.messages.list(after,limit)}
  messageChunk(id:string,offset=0){return this.messages.chunk(id,offset)}
  messageSearch(id:string,q:string){return this.messages.search(id,q)}
  messageText(id:string){return this.messages.text(id)}
+ async saveMessage(win:BrowserWindow,id:string){
+  const item=this.messages.get(id)
+  const selected=await dialog.showSaveDialog(win,{title:'保存消息全文 TXT',defaultPath:'ToolDock-Message-'+id.slice(0,8)+'.txt',filters:[{name:'纯文本',extensions:['txt']}]})
+  if(selected.canceled||!selected.filePath)return {cancelled:true}
+  const destination=path.resolve(selected.filePath)
+  if(this.tempRoot){const rel=path.relative(this.tempRoot,destination);if(!rel||(!rel.startsWith('..')&&!path.isAbsolute(rel)))throw Error('不能保存到快传临时目录')}
+  const staging=path.join(path.dirname(destination),'.tooldock-message-'+randomUUID()+'.part')
+  try{
+   if(item.file)await pipeline(createReadStream(item.file),createWriteStream(staging,{flags:'wx',mode:0o600}))
+   else await fs.writeFile(staging,item.text||'',{flag:'wx',mode:0o600})
+   await fs.link(staging,destination)
+   return {cancelled:false,path:destination}
+  }finally{await fs.rm(staging,{force:true}).catch(()=>{})}
+ }
  async sendMessage(text:string){const chunks=(function*(){for(let i=0;i<text.length;i+=64*1024)yield Buffer.from(text.slice(i,i+64*1024))})();return this.messages.publish(Readable.from(chunks) as IncomingMessage,{deviceId:'host',deviceName:'主设备'})}
  async clearMessages(){await this.messages.clear()}
  async deleteMessages(ids:string[]){await this.messages.remove(ids)}
- private activeUploadBytes(){return [...this.uploads.values()].filter(u=>['uploading','paused'].includes(u.status)).reduce((n,u)=>n+u.size,0)}
+ private activeUploadBytes(){return [...this.uploads.values()].filter(u=>['uploading','paused','pending'].includes(u.status)).reduce((n,u)=>n+u.size,0)}
  async addPoolSources(paths:string[]){
   return this.pool.addLocal(paths,async size=>{
    if(this.pool.usedBytes+this.pendingReservationBytes+this.activeUploadBytes()+size>this.prefs.maxTempBytes)throw Error('文件池配额不足')
@@ -98,13 +120,17 @@ export class FileTransferService extends EventEmitter {
   })
  }
  async removePool(ids:string[]){
-  for(const [task,poolId] of this.poolDownloadIds)if(ids.includes(poolId)){this.activeResponses.get(task)?.destroy()}
+  // A parent folder may contain the file used by any active pool download or ZIP.
+  for(const task of this.poolDownloadIds.keys())this.activeResponses.get(task)?.destroy()
   return this.pool.remove(ids)
  }
  async clearPool(){
   for(const task of this.poolDownloadIds.keys())this.activeResponses.get(task)?.destroy()
-  for(const upload of this.uploads.values())if(['uploading','paused'].includes(upload.status)){await fs.rm(upload.temp,{force:true}).catch(()=>{});upload.status='rejected'}
-  await this.pool.clear();this.emitChange()
+  for(const upload of this.uploads.values())if(['uploading','paused','pending'].includes(upload.status))upload.status='rejected'
+  // Invalidate all in-flight publish operations before deleting pool content.
+  await this.pool.clear()
+  for(const upload of this.uploads.values())if(upload.status==='rejected'&&!this.inProgressUploads.has(upload.id))await fs.rm(upload.temp,{force:true}).catch(()=>{})
+  this.emitChange()
  }
  async savePool(win:BrowserWindow,ids:string[]){
   const result=await dialog.showOpenDialog(win,{title:'选择文件池保存目录',properties:['openDirectory','createDirectory']})
@@ -156,7 +182,7 @@ export class FileTransferService extends EventEmitter {
  async cancelTask(id:string){
   if(this.activeResponses.has(id)){const t=this.tasks.get(id);if(t)t.status='cancelled';this.activeResponses.get(id)?.destroy();return}
   const u=this.uploads.get(id)
-  if(!u||!['uploading','paused','pending'].includes(u.status))throw Error('此任务无法取消')
+  if(!u||!['uploading','paused'].includes(u.status))throw Error('文件正在发布或任务已完成，无法取消')
   if(this.inProgressUploads.has(id))throw Error('任务正在写入分片，请稍后重试')
   await fs.rm(u.temp,{force:true});u.status='rejected'
   const task=this.tasks.get(id);if(task)task.status='cancelled'
@@ -226,43 +252,6 @@ export class FileTransferService extends EventEmitter {
   this.tempRoot=null;this.cleaning=false;this.emitChange()
  }
 
- async approve(id:string){
-  const u=this.uploads.get(id)
-  if(!u||u.status!=='pending')throw Error('文件还没有完成上传，不能批准')
-  const folder=this.prefs.receiveDirectory
-  if(!folder)throw Error('请先选择接收目录')
-  const st=await fs.stat(folder);if(!st.isDirectory())throw Error('接收目录不可用')
-  const free=await fs.statfs(folder)
-  if(free.bavail*free.bsize<u.size+2*GIB)throw Error('接收磁盘可用空间不足')
-  const original=safeFilename(u.name)
-  const ext=path.extname(original),stem=original.slice(0,original.length-ext.length)
-  const temp=path.join(folder,'.tooldock-incoming-'+randomUUID()+'.part')
-  u.status='uploading';this.emitChange()
-  try{
-   await pipeline(createReadStream(u.temp),createWriteStream(temp,{flags:'wx',mode:0o600}))
-   const fd=await fs.open(temp,'r');try{await fd.sync().catch(e=>{if(process.platform!=='win32'||(e as NodeJS.ErrnoException).code!=='EPERM')throw e})}finally{await fd.close()}
-   const staged=await fs.stat(temp);if(staged.size!==u.size)throw Error('接收文件字节数不完整')
-   let candidate='',committed=false
-   for(let n=0;n<10000;n++){
-    candidate=path.join(folder,n===0?original:stem+' ('+n+')'+ext)
-    try{await fs.link(temp,candidate);committed=true;break}catch(e){
-     if((e as NodeJS.ErrnoException).code==='EEXIST')continue
-     throw e
-    }
-   }
-   if(!committed)throw Error('接收目录存在太多重名文件')
-   await fs.rm(temp,{force:true});await fs.rm(u.temp,{force:true})
-   u.savedAs=path.basename(candidate);u.status='accepted';const task=this.tasks.get(u.id);if(task)task.status='accepted';this.emitChange()
-   return {name:u.savedAs,id}
-  }catch(e){await fs.rm(temp,{force:true}).catch(()=>{});u.status='pending';this.emitChange();throw e}
- }
- async reject(id:string){
-  const u=this.uploads.get(id)
-  if(!u||u.status!=='pending')throw Error('文件不处于待接收状态')
-  u.status='rejected';await fs.rm(u.temp,{force:true});const task=this.tasks.get(u.id);if(task)task.status='rejected';this.emitChange()
- }
- async approveMany(ids:string[]){const results:unknown[]=[];for(const id of ids){try{results.push({id,ok:true,result:await this.approve(id)})}catch(e){results.push({id,ok:false,error:String(e)})}}return results}
- async rejectMany(ids:string[]){for(const id of ids)await this.reject(id)}
  private async readShare(id:string){
   const s=this.shares.get(id);if(!s)throw Error('共享文件不存在')
   const st=await fs.stat(s.file).catch(()=>null)
@@ -332,6 +321,15 @@ export class FileTransferService extends EventEmitter {
    if(!['newest','oldest','name','size'].includes(sort))return sendJson(res,400,{error:'排序参数无效'})
    const q=(url.searchParams.get('q')||'').slice(0,200)
    return sendJson(res,200,this.listPool(parent,offset,q,sort as 'newest'|'oldest'|'name'|'size'))
+  }
+  if(method==='GET'&&pathname.startsWith('/api/pool/preview/')){
+   if(!this.prefs.allowPoolDownload)return sendJson(res,403,{error:'文件池下载未开启'})
+   const id=pathname.slice('/api/pool/preview/'.length)
+   if(!/^[0-9a-f-]{36}$/i.test(id))return sendJson(res,400,{error:'文件 ID 无效'})
+   const value=await this.previewPool(id)
+   res.writeHead(200,{'Content-Type':value.mime,'Content-Disposition':'inline','Cache-Control':'no-store','Content-Security-Policy':"default-src 'none'; sandbox"})
+   res.end(value.kind==='image'?Buffer.from(value.data,'base64'):value.data)
+   return
   }
   if((method==='GET'||method==='HEAD')&&pathname.startsWith('/api/pool/files/')){
    if(!this.prefs.allowPoolDownload)return sendJson(res,403,{error:'文件池下载未开启'})
@@ -427,7 +425,7 @@ export class FileTransferService extends EventEmitter {
    if(relativeFolder&&(relativeFolder.split('/').some(x=>!x||x==='.'||x==='..'||x.length>250)||relativeFolder.split('/').length>32)||group&&!/^[0-9a-f-]{36}$/i.test(group))return sendJson(res,400,{error:'目录路径或批次无效'})
    const used=this.activeUploadBytes()+this.pool.usedBytes
    if(used+this.pendingReservationBytes+size>this.prefs.maxTempBytes)return sendJson(res,429,{error:'暂存空间配额已满'})
-   if(this.uploads.size>=500)return sendJson(res,429,{error:'本次会话上传任务过多'})
+   if([...this.uploads.values()].filter(u=>['uploading','paused','pending'].includes(u.status)).length>=500)return sendJson(res,429,{error:'同时等待上传的任务过多'})
    // Reserve synchronously before any await: simultaneous devices cannot overbook the quota.
    this.pendingReservationBytes+=size
    let temp=''
@@ -450,14 +448,18 @@ export class FileTransferService extends EventEmitter {
    u.lastActive=Date.now()
    if(method==='GET'&&!uploadMatch[2])return sendJson(res,200,{id:u.id,offset:u.received,total:u.size,status:u.status})
    if(method==='DELETE'&&!uploadMatch[2]){
-    if(u.status==='accepted')return sendJson(res,409,{error:'文件已接收'})
+    if(u.status==='accepted'||u.status==='pending')return sendJson(res,409,{error:'文件已发布或正在发布'})
     if(this.inProgressUploads.has(u.id))return sendJson(res,409,{error:'分片正在写入，请在当前分片结束后取消'})
     await fs.rm(u.temp,{force:true});u.status='rejected';const task=this.tasks.get(u.id);if(task)task.status='cancelled';this.emitChange();return sendJson(res,200,{ok:true})
    }
    if(method==='POST'&&uploadMatch[2]){
     if(u.status!=='uploading'&&u.status!=='paused')return sendJson(res,409,{error:'状态不允许完成'})
     if(u.received!==u.size)return sendJson(res,409,{error:'文件未完全上传',offset:u.received})
-    const poolId=await this.pool.publish(u.temp,u.name,u.size,{deviceId:u.owner,deviceName:device.name||device.agent},u.relativeFolder,u.group)
+    u.status='pending';this.emitChange()
+    let poolId:string
+    try{poolId=await this.pool.publish(u.temp,u.name,u.size,{deviceId:u.owner,deviceName:device.name||device.agent},u.relativeFolder,u.group)}
+    catch(error){if(u.status==='pending')u.status='paused';this.emitChange();throw error}
+    if(this.uploads.get(u.id)?.status==='rejected'){await this.pool.remove([poolId]);return sendJson(res,409,{error:'文件池已清空'})}
     u.status='accepted';const task=this.tasks.get(u.id);if(task)task.status='completed';this.emitChange()
     if(this.window&&!this.window.isDestroyed()&&!this.window.isFocused()&&Notification.isSupported())new Notification({title:'ToolDock 文件池新增文件',body:u.name+' 已进入文件池'}).show()
     return sendJson(res,200,{ok:true,status:'accepted',poolId})
@@ -480,6 +482,7 @@ export class FileTransferService extends EventEmitter {
      if(createHash('sha256').update(data).digest('hex')!==digest)throw Error('分片 SHA-256 校验失败')
      const handle=await fs.open(u.temp,'r+')
      try{await handle.write(data,0,data.length,u.received);await handle.sync()}finally{await handle.close()}
+     if(this.uploads.get(u.id)?.status==='rejected'){await fs.rm(u.temp,{force:true}).catch(()=>{});return sendJson(res,409,{error:'文件池已被清空'})}
      u.received+=length;u.status='uploading';const task=this.tasks.get(u.id);if(task)task.completed=u.received;this.emitChange()
      return sendJson(res,200,{offset:u.received})
     }finally{this.inProgressUploads.delete(u.id)}
@@ -587,15 +590,16 @@ export class FileTransferService extends EventEmitter {
    zip.addReadStreamLazy(name,{size:entry.size,forceZip64Format:entry.size>=4*GIB},done=>{
     const stream=createReadStream(entry.file!)
     stream.on('data',b=>{task.completed+=Buffer.byteLength(b)})
+    stream.on('error',()=>{if(task.status==='running')task.status='failed';res.destroy()})
     done(null,stream)
    })
   }
   zip.end({forceZip64Format:true,comment:''})
-  this.activeDownloads++;this.tasks.set(taskId,task);this.activeResponses.set(taskId,res);this.downloadOwners.set(taskId,device.id)
+  this.activeDownloads++;this.tasks.set(taskId,task);this.activeResponses.set(taskId,res);this.downloadOwners.set(taskId,device.id);this.poolDownloadIds.set(taskId,'__zip__')
   this.emitChange()
   res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':'attachment; filename="tooldock-pool.zip"'})
   try{await pipeline(zip.outputStream,res);task.status='completed'}catch{task.status='failed';res.destroy()}
-  finally{this.activeDownloads--;this.activeResponses.delete(taskId);this.downloadOwners.delete(taskId);this.emitChange()}
+  finally{this.activeDownloads--;this.activeResponses.delete(taskId);this.downloadOwners.delete(taskId);this.poolDownloadIds.delete(taskId);this.emitChange()}
  }
 }
 export const fileTransfer=new FileTransferService()

@@ -9,6 +9,8 @@ import {msg} from '@/components/ui/message'
 import type {PoolMessage,PoolMessagesPage,TransferSnapshot} from '@/shared/fileTransferModels'
 
 const human=(n:number)=>n>=1024**2?(n/1024**2).toFixed(1)+' MiB':n>=1024?(n/1024).toFixed(1)+' KiB':n+' B'
+const links=/(https?:\/\/[^\s<>\"'，。；（）]+)/g
+function textWithLinks(content:string){return content.split(links).map((part,i)=>{if(!/^https?:\/\//.test(part))return part;try{const url=new URL(part);if(!['http:','https:'].includes(url.protocol)||url.username||url.password)return part;return <button type="button" key={i} className="break-all text-indigo-400 underline underline-offset-2" title="在默认浏览器中打开" onClick={()=>void window.toolDock.transfer.messages.openLink(url.href).catch(e=>msg.error(e))}>{part}</button>}catch{return part}})}
 export function TransferMessagesTab({snapshot}:{snapshot:TransferSnapshot|null}){
  const dialog=useDialog()
  const [list,setList]=useState<PoolMessagesPage>({items:[],total:0})
@@ -48,10 +50,7 @@ export function TransferMessagesTab({snapshot}:{snapshot:TransferSnapshot|null})
  const next=()=>{if(!viewer||chunk.done)return;setPositions(old=>[...old,currentOffset]);void load(viewer.id,chunk.nextOffset)}
  const previous=()=>{if(!viewer||!positions.length)return;const offset=positions.at(-1)!;setPositions(old=>old.slice(0,-1));void load(viewer.id,offset)}
  const find=async()=>{if(!viewer||!query.trim())return;try{setHits(await window.toolDock.transfer.messages.search(viewer.id,query.trim()))}catch(e){msg.error(e)}}
- const download=async(item:PoolMessage)=>{
-  // Electron main process is the trusted bridge for clipboard; text files can be copied without loading them into the webview.
-  await copy(item.id)
- }
+ const save=async(id:string)=>{try{const value=await window.toolDock.transfer.messages.save(id);if(!value.cancelled)msg.success('消息全文已保存为 TXT')}catch(e){msg.error(e)}}
  return <div className="space-y-3">
   <div className="flex flex-wrap items-center justify-between gap-2">
    <div><h3 className="text-sm font-semibold">文字消息池 <span className="text-xs muted">{list.total} / 300</span></h3><p className="mt-1 text-xs muted">全设备公共剪贴板；超过 2000 字符自动保存为临时 TXT，复制仍是全文。</p></div>
@@ -65,8 +64,8 @@ export function TransferMessagesTab({snapshot}:{snapshot:TransferSnapshot|null})
       <Button size="icon" variant="danger" aria-label="删除消息" title="删除消息" onClick={()=>void remove([item.id])}><Trash2 size={14}/></Button>
     </div></div>
     {item.kind==='file'?<div className="space-y-2"><p className="line-clamp-3 whitespace-pre-wrap break-all text-xs">{item.preview}...</p><div className="flex flex-wrap items-center gap-2 text-[11px] muted"><FileText size={13}/>{item.charCount.toLocaleString()} 字符 · {human(item.bytes)} · 临时 TXT</div>
-     <div className="flex gap-2"><Button size="sm" onClick={()=>open(item)}><FileText size={14}/>打开查看</Button><Button size="sm" onClick={()=>void copy(item.id)}><Copy size={14}/>复制全文</Button></div>
-    </div>:<p className="whitespace-pre-wrap break-all text-xs leading-6">{item.text}</p>}
+     <div className="flex gap-2"><Button size="sm" onClick={()=>open(item)}><FileText size={14}/>打开查看</Button><Button size="sm" onClick={()=>void copy(item.id)}><Copy size={14}/>复制全文</Button><Button size="sm" onClick={()=>void save(item.id)}><Download size={14}/>保存 TXT</Button></div>
+    </div>:<p className="whitespace-pre-wrap break-all text-xs leading-6">{textWithLinks(item.text||'')}</p>}
    </div>)}
   </div>
   <div className="flex items-end gap-2">
@@ -75,7 +74,7 @@ export function TransferMessagesTab({snapshot}:{snapshot:TransferSnapshot|null})
    <Button variant="primary" disabled={sending||!snapshot?.running||!text.trim()} onClick={()=>void send()}><Send size={15}/>{sending?'发送中':'发送'}</Button>
   </div>
   <DialogShell open={Boolean(viewer)} onOpenChange={opened=>{if(!opened)setViewer(null)}} title="临时文本查看器" description={viewer?viewer.charCount.toLocaleString()+' 字符 · '+human(viewer.bytes):''} width="workspace"
-   footer={<><Button onClick={()=>viewer&&void copy(viewer.id)}><Copy size={14}/>复制全文</Button><Button onClick={()=>viewer&&void previous()} disabled={!positions.length}><ChevronLeft size={14}/>上一段</Button><Button onClick={()=>viewer&&void next()} disabled={chunk.done}>下一段<ChevronRight size={14}/></Button><Button variant="primary" onClick={()=>setViewer(null)}>关闭</Button></>}>
+   footer={<><Button onClick={()=>viewer&&void copy(viewer.id)}><Copy size={14}/>复制全文</Button><Button onClick={()=>viewer&&void save(viewer.id)}><Download size={14}/>保存 TXT</Button><Button onClick={()=>viewer&&void previous()} disabled={!positions.length}><ChevronLeft size={14}/>上一段</Button><Button onClick={()=>viewer&&void next()} disabled={chunk.done}>下一段<ChevronRight size={14}/></Button><Button variant="primary" onClick={()=>setViewer(null)}>关闭</Button></>}>
    <div className="space-y-3">
     <div className="flex gap-2"><Input aria-label="搜索文本" placeholder="在完整文件中搜索..." value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')void find()}}/><Button onClick={()=>void find()}><Search size={14}/>搜索</Button></div>
     {hits.length>0&&<div className="max-h-28 space-y-1 overflow-auto text-xs muted">{hits.map((hit,i)=><p key={i}>位置 {hit.offset}：{hit.snippet}</p>)}</div>}

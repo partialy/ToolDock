@@ -1,7 +1,8 @@
 import {useCallback,useEffect,useMemo,useState} from 'react'
-import {ChevronRight,Download,File,Folder,FolderPlus,Plus,RefreshCw,Search,Trash2,Save,CheckSquare} from 'lucide-react'
+import {ChevronRight,Download,File,Folder,FolderPlus,Plus,RefreshCw,Search,Trash2,Save,Eye} from 'lucide-react'
 import {Button} from '@/components/ui/button'
 import {Input} from '@/components/ui/input'
+import {DialogShell} from '@/components/ui/dialog-shell'
 import {SelectField} from '@/components/ui/select-field'
 import {useDialog} from '@/components/ui/dialog-provider'
 import {msg} from '@/components/ui/message'
@@ -18,6 +19,7 @@ export function TransferPoolTab({snapshot,revision}:{snapshot:TransferSnapshot|n
  const [checked,setChecked]=useState<string[]>([])
  const [busy,setBusy]=useState(false)
  const [loading,setLoading]=useState(false)
+ const [preview,setPreview]=useState<{name:string;kind:'image'|'text';mime:string;data:string}|null>(null)
  const parent=trail.at(-1)?.id||null
  const refresh=useCallback(async()=>{
   const response=await window.toolDock.transfer.pool.list(parent,0,search,sort)
@@ -68,6 +70,10 @@ export function TransferPoolTab({snapshot,revision}:{snapshot:TransferSnapshot|n
  }
  const selectAll=()=>setChecked(all?[]:data.items.map(x=>x.id))
  const openFolder=(item:PoolItem)=>{setTrail(old=>[...old,{id:item.id,name:item.name}]);setSearch('');setChecked([])}
+ const openPreview=async(item:PoolItem)=>{
+  try{const result=await window.toolDock.transfer.pool.preview(item.id);setPreview({name:item.name,...result})}
+  catch(e){msg.info('无法预览：'+String(e instanceof Error?e.message:e)+'。可使用保存按钮。')}
+ }
  return <div className="space-y-4">
   <div className="flex flex-wrap items-center justify-between gap-2">
    <div><h3 className="text-sm font-semibold">共享文件池 <span className="ml-1 text-xs muted">{data.total} 项</span></h3><p className="mt-1 text-xs muted">所有授权设备均可上传和下载，文件暂存于主设备；关闭服务后自动清理。</p></div>
@@ -98,7 +104,7 @@ export function TransferPoolTab({snapshot,revision}:{snapshot:TransferSnapshot|n
   <div className="divide-y divide-[var(--border)]">
    {data.items.map(item=><div key={item.id} className="flex min-w-0 items-center gap-3 py-3">
     <input type="checkbox" checked={selected.has(item.id)} onChange={()=>toggle(item.id)} aria-label={'选择 '+item.name}/>
-    <button className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={()=>item.kind==='directory'&&openFolder(item)}>
+    <button className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={()=>item.kind==='directory'?openFolder(item):void openPreview(item)}>
      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-indigo-500/10 text-indigo-400">{item.kind==='directory'?<Folder size={19}/>:<File size={19}/>}</span>
      <span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold" title={item.name}>{item.name}</span><span className="mt-1 block truncate text-[11px] muted">{item.kind==='directory'?'文件夹':human(item.size)} · {item.deviceName} · {new Date(item.createdAt).toLocaleString()}</span></span>
      {item.kind==='directory'&&<ChevronRight size={14} className="muted"/>}
@@ -108,5 +114,8 @@ export function TransferPoolTab({snapshot,revision}:{snapshot:TransferSnapshot|n
    </div>)}
   </div>
   {data.nextCursor&&<div className="flex justify-center"><Button size="sm" onClick={()=>void loadMore()}>加载更多（{data.items.length}/{data.total}）</Button></div>}
+  <DialogShell open={Boolean(preview)} onOpenChange={open=>{if(!open)setPreview(null)}} title={preview?.name||'文件预览'} description="只读安全预览，其他文件请保存后查看" width="workspace" footer={<Button variant="primary" onClick={()=>setPreview(null)}>关闭</Button>}>
+   {preview?.kind==='image'?<img src={'data:'+preview.mime+';base64,'+preview.data} alt={preview.name} className="mx-auto max-h-[65vh] max-w-full rounded-xl object-contain"/>:<pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-[var(--panel-alt)] p-4 font-mono text-xs leading-6">{preview?.data}</pre>}
+  </DialogShell>
  </div>
 }

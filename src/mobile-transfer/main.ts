@@ -328,7 +328,7 @@ let live:EventSource|null=null
 function connectEvents(){
  if(live)return
  live=new EventSource('/api/events')
- live.addEventListener('change',()=>{pools.scheduleRefresh();void refresh().catch(()=>{})})
+ live.addEventListener('change',()=>{pools.scheduleRefresh()})
  live.addEventListener('connected',()=>{$('connection-status').textContent='已连接主设备'})
  live.onerror=()=>{$('connection-status').textContent='连接中断，正在重连...'}
 }

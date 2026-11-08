@@ -78,6 +78,7 @@ describe('共享消息池 - 文本内联、文件化与自动淘汰',()=>{
     if(i===0)first=created.id
    }
    expect(messages.list().total).toBe(300)
+   expect(messages.list().items).toHaveLength(300)
    expect(()=>messages.get(first)).toThrow()
   }finally{await messages.close();rmSync(temp,{force:true,recursive:true})}
  })

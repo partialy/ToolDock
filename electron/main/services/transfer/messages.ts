@@ -1,7 +1,6 @@
 import {createReadStream,promises as fs} from 'node:fs'
 import {randomUUID} from 'node:crypto'
 import {StringDecoder} from 'node:string_decoder'
-import {once} from 'node:events'
 import type {IncomingMessage} from 'node:http'
 import path from 'node:path'
 import type {PoolMessage} from '../../../../src/shared/fileTransferModels'
@@ -15,10 +14,11 @@ const MIN_FREE=2*1024**3
 /** Shared ephemeral text clipboard. Large messages are streamed to disk, not SQLite. */
 export class MessagePool {
  private root:string|null=null
+ private generation=0
  private messages:Internal[]=[]
  constructor(private changed:()=>void){}
- async open(temp:string){this.root=path.join(temp,'messages');this.messages=[];await fs.mkdir(this.root,{recursive:true})}
- list(after=0,limit=100){
+ async open(temp:string){this.generation++;this.root=path.join(temp,'messages');this.messages=[];await fs.mkdir(this.root,{recursive:true})}
+ list(after=0,limit=300){
   const items=this.messages.filter(m=>m.createdAt>after).slice(-Math.min(limit,LIMIT)).map(({file,text,...metadata})=>({...metadata,text:text??undefined}))
   return {items,total:this.messages.length}
  }
@@ -26,7 +26,8 @@ export class MessagePool {
  get usedBytes(){return this.messages.filter(m=>m.file).reduce((sum,m)=>sum+m.bytes,0)}
  async publish(req:IncomingMessage,from:{deviceId:string;deviceName:string}){
   if(!this.root)throw Error('消息池未运行')
-  const id=randomUUID(),file=path.join(this.root,id+'.txt.part')
+  const generation=this.generation,root=this.root
+  const id=randomUUID(),file=path.join(root,id+'.txt.part')
   const stream=await fs.open(file,'wx',0o600)
   const decoder=new StringDecoder('utf8')
   let chars=0,bytes=0,preview='',inline='',failed=true
@@ -37,6 +38,7 @@ export class MessagePool {
   }
   try{
    for await(const chunk of req){
+    if(generation!==this.generation)throw Error('消息池已清空，消息发送取消')
     const data=Buffer.from(chunk as Buffer)
     bytes+=data.length
     if(bytes% (8*1024**2)<data.length){
@@ -51,10 +53,11 @@ export class MessagePool {
    if(!bytes)throw Error('不能发送空白消息')
    if(!inline.trim()&&chars<=INLINE)throw Error('不能发送空白消息')
    await stream.sync()
+   if(generation!==this.generation)throw Error('消息池已清空，消息发送取消')
    failed=false
   }finally{await stream.close();if(failed)await fs.rm(file,{force:true}).catch(()=>{})}
   const big=chars>INLINE
-  const final=path.join(this.root,id+'.txt')
+  const final=path.join(root,id+'.txt')
   if(big)await fs.rename(file,final)
   else await fs.rm(file,{force:true})
   const item:Internal={id,deviceId:from.deviceId,deviceName:from.deviceName,createdAt:Date.now(),charCount:chars,bytes,preview:preview.slice(0,200),kind:big?'file':'text',file:big?final:null,text:big?null:inline}
@@ -66,7 +69,7 @@ export class MessagePool {
   for(const id of ids){const item=this.get(id);if(item.file)await fs.rm(item.file,{force:true});this.messages=this.messages.filter(m=>m.id!==id)}
   this.changed()
  }
- async clear(){for(const item of this.messages)if(item.file)await fs.rm(item.file,{force:true}).catch(()=>{});this.messages=[];this.changed()}
+ async clear(){this.generation++;for(const item of this.messages)if(item.file)await fs.rm(item.file,{force:true}).catch(()=>{});this.messages=[];this.changed()}
  async close(){await this.clear();this.root=null}
  async text(id:string){const item=this.get(id);return item.file?await fs.readFile(item.file,'utf8'):item.text||''}
  async chunk(id:string,offset=0){

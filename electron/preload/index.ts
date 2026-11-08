@@ -70,18 +70,15 @@ const api={
   pathForDroppedFile:(file:File)=>{try{return webUtils.getPathForFile(file)}catch{return ''}},
   chooseShares:()=>invoke('transfer:chooseShares'),chooseFiles:()=>invoke('transfer:chooseFiles'),chooseFolders:()=>invoke('transfer:chooseFolders'),
   addSources:(paths:string[])=>invoke('transfer:addSources',paths),
-  pool:{list:(parentId:string|null=null,cursor=0,search='',sort='newest')=>invoke('transfer:pool:list',{parentId,cursor,search,sort}),add:(paths:string[])=>invoke('transfer:pool:add',paths),pick:()=>invoke('transfer:pool:pick'),pickFolder:()=>invoke('transfer:pool:pickFolder'),remove:(ids:string[])=>invoke('transfer:pool:remove',ids),clear:()=>invoke('transfer:pool:clear'),save:(ids:string[])=>invoke('transfer:pool:save',ids)},
-  messages:{list:()=>invoke('transfer:messages:list'),send:(text:string)=>invoke('transfer:messages:send',text),chunk:(id:string,offset:number)=>invoke('transfer:messages:chunk',{id,offset}),search:(id:string,query:string)=>invoke('transfer:messages:search',{id,query}),copy:(id:string)=>invoke('transfer:messages:copy',id),remove:(ids:string[])=>invoke('transfer:messages:remove',ids),clear:()=>invoke('transfer:messages:clear')},
+  pool:{preview:(id:string)=>invoke('transfer:pool:preview',id),list:(parentId:string|null=null,cursor=0,search='',sort='newest')=>invoke('transfer:pool:list',{parentId,cursor,search,sort}),add:(paths:string[])=>invoke('transfer:pool:add',paths),pick:()=>invoke('transfer:pool:pick'),pickFolder:()=>invoke('transfer:pool:pickFolder'),remove:(ids:string[])=>invoke('transfer:pool:remove',ids),clear:()=>invoke('transfer:pool:clear'),save:(ids:string[])=>invoke('transfer:pool:save',ids)},
+  messages:{list:()=>invoke('transfer:messages:list'),send:(text:string)=>invoke('transfer:messages:send',text),chunk:(id:string,offset:number)=>invoke('transfer:messages:chunk',{id,offset}),search:(id:string,query:string)=>invoke('transfer:messages:search',{id,query}),copy:(id:string)=>invoke('transfer:messages:copy',id),save:(id:string)=>invoke('transfer:messages:save',id),openLink:(url:string)=>invoke('transfer:messages:openLink',url),remove:(ids:string[])=>invoke('transfer:messages:remove',ids),clear:()=>invoke('transfer:messages:clear')},
   tempDirectory:()=>invoke('transfer:tempDirectory'),
   directory:(parentId:string,cursor?:string)=>invoke('transfer:directory',{parentId,cursor}),directoryStats:(id:string)=>invoke('transfer:directoryStats',id),
   history:{list:(search?:string)=>invoke('transfer:history:list',search||''),remove:(id:string)=>invoke('transfer:history:remove',id),clear:()=>invoke('transfer:history:clear'),restore:(ids:string[])=>invoke('transfer:history:restore',ids)},
   removeShare:(id:string)=>invoke('transfer:removeShare',id),
-  chooseDirectory:()=>invoke('transfer:chooseDirectory'),setPrefs:(prefs:unknown)=>invoke('transfer:setPrefs',prefs),
-  approve:(id:string)=>invoke('transfer:approve',id),reject:(id:string)=>invoke('transfer:reject',id),
-  approveMany:(ids:string[])=>invoke('transfer:approveMany',ids),rejectMany:(ids:string[])=>invoke('transfer:rejectMany',ids),
+  setPrefs:(prefs:unknown)=>invoke('transfer:setPrefs',prefs),
   cancelTask:(id:string)=>invoke('transfer:cancelTask',id),revokeDevice:(id:string)=>invoke('transfer:revokeDevice',id),
-  onChange:(cb:(data:unknown)=>void)=>{const fn=(_e:Electron.IpcRendererEvent,data:unknown)=>cb(data);ipcRenderer.on('transfer:changed',fn);return()=>ipcRenderer.off('transfer:changed',fn)},
-  onPending:(cb:(data:unknown)=>void)=>{const fn=(_e:Electron.IpcRendererEvent,data:unknown)=>cb(data);ipcRenderer.on('transfer:pending',fn);return()=>ipcRenderer.off('transfer:pending',fn)}
+  onChange:(cb:(data:unknown)=>void)=>{const fn=(_e:Electron.IpcRendererEvent,data:unknown)=>cb(data);ipcRenderer.on('transfer:changed',fn);return()=>ipcRenderer.off('transfer:changed',fn)}
  },
  export:{
   start:(name:string,format:string)=>invoke('export:start',{name,format}),

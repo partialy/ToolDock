@@ -61,7 +61,12 @@ export function initPools(json:Json,post:(url:string,data:unknown)=>Promise<any>
   const open=button('','file-browse')
   open.append(ico,name)
   if(item.kind==='directory')open.onclick=()=>{trail.push({id:item.id,name:item.name});selected.clear();void refreshPool().catch(e=>onError(String(e)))}
-  else open.onclick=()=>window.location.assign('/api/pool/files/'+item.id)
+  else open.onclick=()=>{
+   const ext=item.name.slice(item.name.lastIndexOf('.')).toLowerCase()
+   const previewable=['.png','.jpg','.jpeg','.gif','.webp','.txt','.md','.json','.jsonl','.log','.csv','.xml','.yaml','.yml','.ini','.conf','.srt','.vtt','.lrc'].includes(ext)&&item.size<=8*1024**2
+   if(previewable)window.open('/api/pool/preview/'+item.id,'_blank','noopener,noreferrer')
+   else window.location.assign('/api/pool/files/'+item.id)
+  }
   const down=button('↓','download-button')
   down.setAttribute('aria-label','下载 '+item.name)
   down.onclick=()=>{if(item.kind==='directory')void downloadArchive([item.id]);else window.location.assign('/api/pool/files/'+item.id)}
@@ -106,6 +111,7 @@ export function initPools(json:Json,post:(url:string,data:unknown)=>Promise<any>
    onError('');return true
   }catch(e){onError('复制失败，可通过下载 TXT 保存全文：'+String(e));return false}
  }
+ const linkify=(container:HTMLElement,value:string)=>{const pattern=/(https?:\/\/[^\s<>\"'，。；（）]+)/g;for(const part of value.split(pattern)){if(!/^https?:\/\//.test(part)){container.append(document.createTextNode(part));continue}try{const url=new URL(part);if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error();const a=document.createElement('a');a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';a.textContent=part;container.append(a)}catch{container.append(document.createTextNode(part))}}}
  const messageRow=(item:Message)=>{
   const card=element('article','message-item')
   const info=element('div','message-item-head')
@@ -120,7 +126,7 @@ export function initPools(json:Json,post:(url:string,data:unknown)=>Promise<any>
    const download=element('a','mini-button','下载 TXT') as HTMLAnchorElement
    download.href='/api/messages/'+item.id+'/download';download.download='message.txt'
    tools.append(view,download);card.append(tools)
-  }else card.append(element('p','message-text',item.text||''))
+  }else{const body=element('p','message-text');linkify(body,item.text||'');card.append(body)}
   return card
  }
  function renderMessages(){

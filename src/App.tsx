@@ -129,7 +129,7 @@ export default function App(){
   }
   return <div className="p-10 muted">页面不存在或工具已删除。请从侧栏选择工具。</div>
  }
- return <MotionPreferenceContext.Provider value={ws.settings.motion}><MotionConfig reducedMotion={motionOff?'always':'never'}><DialogProvider><NotificationProvider position={ws.settings.notificationPosition} previewPositionChanges={!ws.busy} onOpenTransfer={()=>{navigate('tool:builtin-file-transfer');setTimeout(()=>window.dispatchEvent(new Event('tooldock:show-incoming')),320)}}>
+ return <MotionPreferenceContext.Provider value={ws.settings.motion}><MotionConfig reducedMotion={motionOff?'always':'never'}><DialogProvider><NotificationProvider position={ws.settings.notificationPosition} previewPositionChanges={!ws.busy} onOpenTransfer={()=>{navigate('tool:builtin-file-transfer');setTimeout(()=>window.dispatchEvent(new Event('tooldock:show-pool')),320)}}>
   <div className={'flex h-screen w-screen flex-col overflow-hidden bg-[var(--background)] text-[var(--foreground)] '+(ws.settings.theme==='dark'?'dark':'')}>
    <HeaderBar back={()=>stepHistory(position-1)} forward={()=>stepHistory(position+1)} canBack={position>0} canForward={position<history.length-1} title={title} onAddCategory={()=>openEditor({kind:'category'})} onAddTool={()=>openEditor({kind:'tool'})} settings={ws.settings} onTheme={()=>void ws.setPreference('theme',ws.settings.theme==='dark'?'light':'dark')} transferRunning={transferRunning} onOpenTransfer={()=>navigate('tool:builtin-file-transfer')}/>
    <div className="relative flex min-h-0 flex-1">

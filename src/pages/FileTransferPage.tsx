@@ -38,8 +38,8 @@ export function FileTransferPage({focus}:{focus?:import('@/shared/dashboardModel
  useEffect(()=>{setCap(String((snapshot?.prefs.maxTempBytes||20*1024**3)/1024**3))},[snapshot?.prefs.maxTempBytes])
  useEffect(()=>{
   const listener=()=>setTab('pool')
-  window.addEventListener('tooldock:show-incoming',listener)
-  return()=>window.removeEventListener('tooldock:show-incoming',listener)
+  window.addEventListener('tooldock:show-pool',listener)
+  return()=>window.removeEventListener('tooldock:show-pool',listener)
  },[])
  useEffect(()=>{
   let canceled=false,objectUrl=''
