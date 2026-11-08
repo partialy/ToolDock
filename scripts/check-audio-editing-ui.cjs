@@ -27,6 +27,15 @@ async function main(){
   await page.evaluate(()=>document.querySelector('audio')?.load())
   await page.waitForFunction(()=>document.querySelector('audio')?.readyState>=1&&document.querySelector('audio')?.duration>0,null,{timeout:20000})
   console.log('ORIGINAL_PREVIEW_LOAD_PASSED')
+  // 回归：2×按钮及3× Ctrl+滚轮缩放均需正常加载整数微秒的波形范围。
+  await page.getByRole('button',{name:'放大波形'}).click()
+  await page.getByText('2×',{exact:true}).waitFor({timeout:5000})
+  await page.locator('canvas[aria-label^="音频波形时间轴"]').dispatchEvent('wheel',{deltaY:-120,ctrlKey:true})
+  await page.getByText('3×',{exact:true}).waitFor({timeout:5000})
+  await page.waitForTimeout(1300)
+  assert.equal(await page.getByText('波形不可用，可用时间输入剪辑').count(),0,'缩放后波形请求不应触发整数校验异常')
+  await page.getByRole('button',{name:'缩小波形'}).click()
+  console.log('AUDIO_ZOOM_2X_3X_PASSED')
   await page.getByRole('textbox',{name:'剪辑秒数'}).fill('1')
   await page.getByRole('button',{name:'删除前N秒'}).click()
   for(let i=0;i<80;i++){

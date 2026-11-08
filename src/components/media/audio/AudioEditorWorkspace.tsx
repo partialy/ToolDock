@@ -8,6 +8,7 @@ import {AudioExportDialog} from './AudioExportDialog'
 import {canonicalKept,estimatedDurationUs,keepInterval,subtractInterval,type AudioProject,type AudioEdit,type AudioRange} from '@/shared/audioEditingModels'
 import type {MediaPreferences} from '@/shared/mediaModels'
 import {deletedRanges,formatAudioTime,parseAudioTime,toOriginalTime,toOutputTime} from '@/lib/audio-editing/time'
+import {getAudioWaveformViewport} from '@/lib/audio-editing/waveform-viewport'
 
 export function AudioEditorWorkspace({project,prefs,directory,onBack,onUpdated}:{
  project:AudioProject;prefs:MediaPreferences;directory:string;onBack:()=>void;onUpdated:()=>void
@@ -17,6 +18,7 @@ export function AudioEditorWorkspace({project,prefs,directory,onBack,onUpdated}:
  const [edit,setEdit]=useState<AudioEdit>(()=>structuredClone(project.edit)),[outputName,setOutputName]=useState(project.outputName)
  const [selection,setSelection]=useState<AudioRange|null>(null),[startText,setStartText]=useState('00:00:00.00'),[endText,setEndText]=useState('00:00:00.00')
  const [quickText,setQuickText]=useState('5'),[zoom,setZoom]=useState(1),[viewStartUs,setViewStartUs]=useState(0)
+ const viewport=getAudioWaveformViewport(durationUs,zoom,viewStartUs)
  const [peaks,setPeaks]=useState<number[]>([]),[peakState,setPeakState]=useState(''),[playhead,setPlayhead]=useState(0)
  const [playback,setPlayback]=useState<'original'|'edited'>('original'),[audioUrl,setAudioUrl]=useState(''),[previewBusy,setPreviewBusy]=useState(false)
  const [saveState,setSaveState]=useState('已保存'),[exportOpen,setExportOpen]=useState(false)
@@ -51,12 +53,12 @@ export function AudioEditorWorkspace({project,prefs,directory,onBack,onUpdated}:
  useEffect(()=>{
   let active=true;setPeaks([]);setPeakState('正在生成波形…')
   const timer=setTimeout(()=>{
-   void window.toolDock.audio.peaks(project.id,viewStartUs,Math.min(durationUs,viewStartUs+durationUs/zoom),600)
+   void window.toolDock.audio.peaks(project.id,viewport.startUs,viewport.endUs,600)
     .then(r=>{if(active){setPeaks(r.points);setPeakState('')}})
     .catch(e=>{if(active){setPeakState('波形不可用，可用时间输入剪辑');msg.warning(e)}})
   },320)
   return()=>{active=false;clearTimeout(timer)}
- },[project.id,durationUs,zoom,viewStartUs])
+ },[project.id,viewport.startUs,viewport.endUs])
  useEffect(()=>{setAudioUrl('');audioRef.current?.pause()},[edit,playback])
  const update=(next:AudioEdit)=>{
   setUndo(previous=>[...previous.slice(-99),structuredClone(edit)])
@@ -141,15 +143,15 @@ export function AudioEditorWorkspace({project,prefs,directory,onBack,onUpdated}:
    <AudioWaveformTimeline points={playback==='original'?peaks:finishedPeaks} durationUs={playback==='original'?durationUs:estimated}
     kept={playback==='original'?edit.kept:[{startUs:0,endUs:estimated}]}
     selection={playback==='original'?selection:null} playheadUs={playback==='original'?playhead:toOutputTime(playhead,edit)}
-    zoom={playback==='original'?zoom:1} viewStartUs={playback==='original'?viewStartUs:0}
+    zoom={playback==='original'?zoom:1} viewStartUs={playback==='original'?viewport.startUs:0}
     onSelect={playback==='original'?selected:()=>{}} onSeek={us=>seek(playback==='original'?us:toOriginalTime(us,edit))}
     onZoom={v=>{if(playback==='original'){setZoom(v);setViewStartUs(0)}}}/>
    {peakState&&<p className="text-xs muted">{peakState}</p>}
    <div className="flex flex-wrap items-center gap-3">
-    <Button size="sm" disabled={playback==='edited'||zoom<=1} onClick={()=>{setZoom(x=>Math.max(1,x/2));setViewStartUs(0)}}><ZoomOut size={15}/></Button>
+    <Button size="sm" aria-label="缩小波形" disabled={playback==='edited'||zoom<=1} onClick={()=>{setZoom(x=>Math.max(1,x/2));setViewStartUs(0)}}><ZoomOut size={15}/></Button>
     <span className="text-xs muted">{zoom.toFixed(0)}×</span>
-    <Button size="sm" disabled={playback==='edited'||zoom>=32} onClick={()=>setZoom(x=>Math.min(32,x*2))}><ZoomIn size={15}/></Button>
-    <input aria-label="波形时间轴滚动" type="range" min={0} max={Math.max(0,Math.round(durationUs-durationUs/zoom))} step={10000} value={viewStartUs}
+    <Button size="sm" aria-label="放大波形" disabled={playback==='edited'||zoom>=32} onClick={()=>setZoom(x=>Math.min(32,x*2))}><ZoomIn size={15}/></Button>
+    <input aria-label="波形时间轴滚动" type="range" min={0} max={viewport.maxStartUs} step={10000} value={viewport.startUs}
      disabled={playback==='edited'||zoom===1} onChange={e=>setViewStartUs(Number(e.target.value))} className="min-w-24 flex-1 accent-indigo-500"/>
     <Button size="sm" onClick={undoAction} disabled={!undo.length}><Undo2 size={15}/>撤销</Button>
     <Button size="sm" onClick={redoAction} disabled={!redo.length}><Redo2 size={15}/>重做</Button>
