@@ -88,7 +88,7 @@ export class FileTransferService extends EventEmitter {
   return {kind:'text' as const,mime:'text/plain; charset=utf-8',data:buffer.toString('utf8')}
  }
  listPool(parentId:string|null=null,cursor=0,search='',sort:'newest'|'oldest'|'name'|'size'='newest'){return this.pool.list(parentId,cursor,search,sort)}
- listMessages(after=0,limit=100){return this.messages.list(after,limit)}
+ listMessages(after=0,limit=300){return this.messages.list(after,limit)}
  messageChunk(id:string,offset=0){return this.messages.chunk(id,offset)}
  messageSearch(id:string,q:string){return this.messages.search(id,q)}
  messageText(id:string){return this.messages.text(id)}
