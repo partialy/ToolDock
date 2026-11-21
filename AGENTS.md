@@ -58,7 +58,8 @@
 - 视频处理第三个 Tab「简繁转换」采用独立 textConversion:* IPC、TextConversionService 与 Node Worker，不扩充 MediaKind，不污染媒体任务 SQLite。TXT/MD/SRT/VTT/LRC 仅做本地转换，保留字幕时间戳、歌词标签及 Markdown 代码/链接目标；opencc-js 转换方向/地区与编码处理须覆盖回归测试。
 - 简繁文件任务默认 100 项、500 MiB 总量、单文件 50 MiB、最多并发 2；文本及文件正文不记录到日志/SQLite/备份。文件结果暂存于专属受控会话目录，退出严格校验并清理；数据目录迁移与活动转换互斥。导出必须排他不覆盖原始或已有文件，ZIP 使用 yazl 流式写入。每行仅有一个三点操作按钮（菜单中为图标+文案）。
 
-- 手机快传页在 `src/mobile-transfer`（原生 TS + HTML/CSS，`vite.mobile.config.ts` 构建到 `out/mobile-transfer`，由 transfer 服务 `handle()` 直接提供静态文件）。页面使用底部三项导航（分享/文件池/消息池，上图标下文字），顶部不再保留标题、连接状态与设备名区域；页面内提示统一走 `src/mobile-transfer/toast.ts` 的 toast，不再使用固定错误条。
+- 手机快传页在 `src/mobile-transfer`（原生 TS + HTML/CSS，`vite.mobile.config.ts` 构建到 `out/mobile-transfer`，由 transfer 服务 `handle()` 直接提供静态文件，含独立 Worker `/hash-worker.js` 及 CSP `worker-src 'self'`）。页面使用底部三项导航（分享/文件池/消息池，上图标下文字），顶部不再保留标题、连接状态与设备名区域；页面内提示统一走 `src/mobile-transfer/toast.ts` 的 toast，不再使用固定错误条。
+- 手机端文件池上传采用 4 MiB 分片 + 全局 5 路并发池、`HashWorkerPool`（预切片并 Transferable 零拷贝算 SHA-256）与 `XMLHttpRequest` 实时进度；主进程 `FileTransferService` 通过 `electron/main/services/transfer/upload-chunks.ts` 维护乱序分片区间与在途互斥，复用 `.part` 文件句柄并发 `pwrite`，仅在 `/complete` 发布前统一 `sync()` 并关闭句柄；分片收包同时统计在途字节并仅向桌面端 250ms 节流推送进度，避免 SSE 广播干扰传输连接。
 - 手机设备名由主进程 `LanAuth.authorize()` 自动分配，格式 `单词-4位后缀`（后缀字符集 `23456789ABCDEFGHJKMNPQRSTUVWXYZ`，排除易混淆的 0 O 1 I L；词表见 `electron/main/services/transfer/device-names.ts`），在当前在线设备内唯一、刷新保持、不可手动改名；文件池与消息归属均使用该名称。二级页面（目录层级、上传抽屉、文本查看器）通过 `src/mobile-transfer/navigation.ts` 压入 history，手机返回键按层级后退，一级 tab 切换不压栈。
 
 - 系统环境变量管理工具固定内置 ID `builtin-env-manager`、路由 `env-manager`、默认分类 `developer`，通过 SQLite v15 增量注册，不复活已删除的 `developer` 分类。采用受限 `envManager:*` IPC 与 `services/env-manager` 服务，无损读取 Windows 注册表（保留 `REG_SZ` 与 `REG_EXPAND_SZ`），禁止删除或清空 `ComSpec`、`SystemRoot`、`windir` 及系统 `Path` 中的 `System32`。非管理员状态下修改 `Machine` 变量通过单次受控 UAC 提权执行并广播 `WM_SETTINGCHANGE`。版本切换预设与历史快照（自动快照最多保留 30 份）存放在 `tools/env-manager`，跟随数据目录迁移但排除在普通全局 ZIP 备份之外，变量明文不写入日志。

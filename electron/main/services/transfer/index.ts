@@ -17,9 +17,13 @@ import {saveShareHistory} from '../../database/file-transfer-history'
 import {FilePool} from './pool'
 import {MessagePool} from './messages'
 import {getDb,getDataRoot} from '../../database/store'
+import {type ByteRange,contiguousOffset,hasRangeOverlap,mergeRange,removeExactRange,sumRangeBytes} from './upload-chunks'
 type InternalShare=SharedFile&{file:string;rootId?:string}
-type Upload=IncomingFile&{temp:string;owner:string;lastActive:number;relativeFolder:string;group:string;fd?:fs.FileHandle}
+type Upload=IncomingFile&{temp:string;owner:string;lastActive:number;relativeFolder:string;group:string;ranges:ByteRange[];inflight:ByteRange[];activeChunks:number;inflightBytes:number;fd?:fs.FileHandle;fdPromise?:Promise<fs.FileHandle>;activeRequests:Set<IncomingMessage>}
 const GIB=1024**3
+const MAX_CHUNK_BYTES=8*1024**2
+const STREAM_HIGH_WATER_MARK=1024**2
+const PROGRESS_THROTTLE_MS=250
 const HEADER={'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','Cache-Control':'no-store','Cross-Origin-Resource-Policy':'same-origin'}
 export class FileTransferService extends EventEmitter {
  private server:Server|null=null
@@ -42,9 +46,10 @@ export class FileTransferService extends EventEmitter {
  private revision=0
  private cleaning=false
  private timer:NodeJS.Timeout|null=null
+ private progressTimer:NodeJS.Timeout|null=null
  private pendingReservationBytes=0
  private activeDownloads=0
- private inProgressUploads=new Set<string>()
+ private globalInflightChunks=0
  private activeResponses=new Map<string,ServerResponse>()
  private downloadOwners=new Map<string,string>()
  private downloadShares=new Map<string,string>()
@@ -66,10 +71,38 @@ export class FileTransferService extends EventEmitter {
   const url=this.server&&this.address&&this.port?'http://'+this.address+':'+this.port:null
   return {running:!!this.server,port:this.port,address:this.address,url,pin:this.auth?.pin||null,
    qrUrl:url&&this.auth?url+'/#token='+encodeURIComponent(this.auth.bootstrap):null,
-   interfaces:interfaces(),shares:[...this.shares.values()].map(({file,...safe})=>({...safe,path:file})),incoming:[...this.uploads.values()].map(({temp,owner,lastActive,fd,...safe})=>safe),
+   interfaces:interfaces(),shares:[...this.shares.values()].map(({file,...safe})=>({...safe,path:file})),incoming:[...this.uploads.values()].map(({temp,owner,lastActive,fd,fdPromise,ranges,inflight,activeChunks,inflightBytes,activeRequests,...safe})=>safe),
    devices:this.auth?.list()||[],tasks:[...this.tasks.values()],prefs:this.getPrefs(),pool:{usedBytes:this.pool.usedBytes,reservedBytes:this.activeUploadBytes()+this.pendingReservationBytes,limitBytes:this.prefs.maxTempBytes,messageBytes:this.messages.usedBytes,fileCount:this.pool.itemCount,messageCount:this.messages.list().total}}
  }
- private emitChange(){this.emit('change');if(this.window&&!this.window.isDestroyed())this.window.webContents.send('transfer:changed',this.getSnapshot());const message='id: '+(++this.revision)+'\nevent: change\ndata: {}\n\n';for(const res of this.subscribers)try{res.write(message)}catch{this.subscribers.delete(res)}}
+ private emitChange(){if(this.progressTimer){clearTimeout(this.progressTimer);this.progressTimer=null}this.emit('change');if(this.window&&!this.window.isDestroyed())this.window.webContents.send('transfer:changed',this.getSnapshot());const message='id: '+(++this.revision)+'\nevent: change\ndata: {}\n\n';for(const res of this.subscribers)try{res.write(message)}catch{this.subscribers.delete(res)}}
+ /** 上传分片写入期间仅向桌面端节流同步进度，避免触发手机端 SSE 全量刷新抢占连接。 */
+ private emitUploadProgress(){
+  if(this.progressTimer)return
+  this.progressTimer=setTimeout(()=>{
+   this.progressTimer=null
+   this.emit('change')
+   if(this.window&&!this.window.isDestroyed())this.window.webContents.send('transfer:changed',this.getSnapshot())
+  },PROGRESS_THROTTLE_MS)
+  this.progressTimer.unref()
+ }
+ private activeUploadTaskCount(){let count=0;for(const u of this.uploads.values())if(u.activeChunks>0)count++;return count}
+ private async closeUploadHandle(u:Upload){
+  if(u.fdPromise)await u.fdPromise.catch(()=>undefined)
+  if(u.fd){const handle=u.fd;u.fd=undefined;await handle.close().catch(()=>{})}
+ }
+ private async ensureUploadFd(u:Upload):Promise<fs.FileHandle>{
+  if(u.fd)return u.fd
+  if(!u.fdPromise){
+   u.fdPromise=fs.open(u.temp,'r+').then(handle=>{u.fd=handle;return handle}).finally(()=>{u.fdPromise=undefined})
+  }
+  return u.fdPromise
+ }
+ private abortUploadRequests(u:Upload){for(const req of u.activeRequests)req.destroy()}
+ private async cleanupRejectedUpload(u:Upload){
+  if(u.activeChunks>0)return
+  await this.closeUploadHandle(u)
+  await fs.rm(u.temp,{force:true}).catch(()=>{})
+ }
  async previewPool(id:string){
   const f=this.pool.file(id),ext=path.extname(f.name).toLowerCase()
   const mime:Record<string,string>={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.gif':'image/gif','.webp':'image/webp'}
@@ -126,10 +159,17 @@ export class FileTransferService extends EventEmitter {
  }
  async clearPool(){
   for(const task of this.poolDownloadIds.keys())this.activeResponses.get(task)?.destroy()
-  for(const upload of this.uploads.values())if(['uploading','paused','pending'].includes(upload.status))upload.status='rejected'
+  for(const upload of this.uploads.values()){
+   if(['uploading','paused','pending'].includes(upload.status)){
+    upload.status='rejected'
+    this.abortUploadRequests(upload)
+   }
+  }
   // Invalidate all in-flight publish operations before deleting pool content.
   await this.pool.clear()
-  for(const upload of this.uploads.values())if(upload.status==='rejected'&&!this.inProgressUploads.has(upload.id))await fs.rm(upload.temp,{force:true}).catch(()=>{})
+  for(const upload of this.uploads.values()){
+   if(upload.status==='rejected'&&upload.activeChunks===0)await this.cleanupRejectedUpload(upload)
+  }
   this.emitChange()
  }
  async savePool(win:BrowserWindow,ids:string[]){
@@ -178,20 +218,34 @@ export class FileTransferService extends EventEmitter {
  async directory(parentId:string,cursor?:string){try{return await this.tree.list(parentId,Number(cursor||0))}catch(e){const root=this.tree.rootFor(parentId);if(root){const source=this.shares.get(root.id);if(source){source.status='missing';this.emitChange()}}throw e}}
  async directoryStats(id:string){return this.tree.stats(id)}
  removeShare(id:string){if(!this.shares.delete(id))throw Error('共享文件不存在');this.tree.removeRoot(id);for(const [task,roots] of this.downloadRoots)if(roots.has(id)){const t=this.tasks.get(task);if(t)t.status='cancelled';this.activeResponses.get(task)?.destroy()}for(const [task,shareId] of this.downloadShares)if(shareId===id){const t=this.tasks.get(task);if(t)t.status='cancelled';this.activeResponses.get(task)?.destroy()}this.archiveTickets.clear();this.emitChange()}
- revokeDevice(id:string){this.auth?.revoke(id);for(const u of this.uploads.values())if(u.owner===id&&u.status==='uploading')u.status='paused';for(const [task,owner] of this.downloadOwners)if(owner===id){this.activeResponses.get(task)?.destroy();this.downloadOwners.delete(task)}this.emitChange()}
+ revokeDevice(id:string){
+  this.auth?.revoke(id)
+  for(const u of this.uploads.values()){
+   if(u.owner===id&&u.status==='uploading'){
+    u.status='paused'
+    this.abortUploadRequests(u)
+   }
+  }
+  for(const [task,owner] of this.downloadOwners)if(owner===id){this.activeResponses.get(task)?.destroy();this.downloadOwners.delete(task)}
+  this.emitChange()
+ }
  async cancelTask(id:string){
   if(this.activeResponses.has(id)){const t=this.tasks.get(id);if(t)t.status='cancelled';this.activeResponses.get(id)?.destroy();return}
   const u=this.uploads.get(id)
   if(!u||!['uploading','paused'].includes(u.status))throw Error('文件正在发布或任务已完成，无法取消')
-  if(this.inProgressUploads.has(id))throw Error('任务正在写入分片，请稍后重试')
-  await fs.rm(u.temp,{force:true});u.status='rejected'
+  u.status='rejected'
   const task=this.tasks.get(id);if(task)task.status='cancelled'
+  this.abortUploadRequests(u)
+  if(u.activeChunks===0)await this.cleanupRejectedUpload(u)
   this.emitChange()
  }
  private async cleanupExpired(){
   const now=Date.now()
   for(const [id,u] of this.uploads){
-   if(['uploading','paused'].includes(u.status)&&now-u.lastActive>30*60_000){this.uploads.delete(id);await u.fd?.close().catch(()=>{});await fs.rm(u.temp,{force:true}).catch(()=>{})}
+   if(['uploading','paused'].includes(u.status)&&u.activeChunks===0){
+    if(now-u.lastActive>30*60_000){this.uploads.delete(id);await this.closeUploadHandle(u);await fs.rm(u.temp,{force:true}).catch(()=>{})}
+    else if(u.fd&&now-u.lastActive>15_000){await this.closeUploadHandle(u)}
+   }
   }
   this.emitChange()
  }
@@ -223,8 +277,8 @@ export class FileTransferService extends EventEmitter {
   this.tempRoot=temp
   await this.pool.open(temp);await this.messages.open(temp)
   const auth=new LanAuth(),server=createServer((req,res)=>{void this.handle(req,res).catch(e=>{if(!res.headersSent)sendJson(res,500,{error:e instanceof Error?e.message:'服务器处理失败'});else res.destroy()})})
-  server.on('connection',socket=>{this.sockets.add(socket);socket.on('close',()=>this.sockets.delete(socket))})
-  server.headersTimeout=10_000;server.requestTimeout=120_000;server.keepAliveTimeout=8000;server.maxRequestsPerSocket=200
+  server.on('connection',socket=>{socket.setNoDelay(true);this.sockets.add(socket);socket.on('close',()=>this.sockets.delete(socket))})
+  server.headersTimeout=10_000;server.requestTimeout=120_000;server.keepAliveTimeout=15_000;server.maxRequestsPerSocket=0
   try{
    await new Promise<void>((resolve,reject)=>{
     server.once('error',reject);server.listen(0,address,()=>{server.off('error',reject);resolve()})
@@ -240,13 +294,14 @@ export class FileTransferService extends EventEmitter {
   if(this.cleaning)return
   this.cleaning=true
   if(this.timer)clearInterval(this.timer);this.timer=null
+  if(this.progressTimer){clearTimeout(this.progressTimer);this.progressTimer=null}
   const server=this.server;this.server=null
   this.auth?.clear();this.auth=null;this.address=null;this.mask=null;this.port=null
   for(const socket of this.sockets)socket.destroy();this.sockets.clear()
   if(server)await new Promise<void>(resolve=>server.close(()=>resolve()))
   for(const res of this.subscribers)res.end();this.subscribers.clear()
-  for(const u of this.uploads.values())await u.fd?.close().catch(()=>{})
-  this.uploads.clear();this.shares.clear();this.tree.clear();this.archiveTickets.clear();this.downloadRoots.clear();this.tasks.clear();this.inProgressUploads.clear();this.activeDownloads=0;this.activeResponses.clear();this.downloadOwners.clear();this.downloadShares.clear()
+  for(const u of this.uploads.values()){this.abortUploadRequests(u);await this.closeUploadHandle(u)}
+  this.uploads.clear();this.shares.clear();this.tree.clear();this.archiveTickets.clear();this.downloadRoots.clear();this.tasks.clear();this.globalInflightChunks=0;this.activeDownloads=0;this.activeResponses.clear();this.downloadOwners.clear();this.downloadShares.clear()
   await this.pool.close();await this.messages.close();this.poolDownloadIds.clear()
   if(this.tempRoot)await fs.rm(this.tempRoot,{recursive:true,force:true}).catch(()=>{})
   this.tempRoot=null;this.cleaning=false;this.emitChange()
@@ -280,11 +335,11 @@ export class FileTransferService extends EventEmitter {
   if(unsafe&&(origin!=='http://'+host||req.headers['x-tooldock-request']!=='1'))
    return sendJson(res,403,{error:'拒绝跨站请求'})
   for(const [key,value] of Object.entries(HEADER))res.setHeader(key,value)
-  if(method==='GET'&&(pathname==='/'||pathname==='/main.js'||pathname==='/style.css')){
+  if(method==='GET'&&(pathname==='/'||pathname==='/main.js'||pathname==='/style.css'||pathname==='/hash-worker.js')){
    const file=pathname==='/'?'index.html':pathname.slice(1)
    const location=path.resolve(__dirname,'../mobile-transfer',file)
    const mime=file.endsWith('js')?'application/javascript; charset=utf-8':file.endsWith('css')?'text/css; charset=utf-8':'text/html; charset=utf-8'
-   res.writeHead(200,{'Content-Type':mime,'Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"})
+   res.writeHead(200,{'Content-Type':mime,'Content-Security-Policy':"default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"})
    return void await pipeline(createReadStream(location),res).catch(()=>{res.destroy()})
   }
   if(method==='POST'&&pathname==='/api/auth'){
@@ -298,7 +353,7 @@ export class FileTransferService extends EventEmitter {
   }
   const device=this.auth?.identify(req)
   if(!device)return sendJson(res,401,{error:'请先输入访问码或扫描二维码授权'})
-  if(method==='GET'&&pathname==='/api/status')return sendJson(res,200,{shares:this.prefs.allowDownload?this.getSnapshot().shares.map(({path,...safe})=>safe):[],uploadAllowed:this.prefs.allowPoolUpload,downloadAllowed:this.prefs.allowDownload,poolDownloadAllowed:this.prefs.allowPoolDownload,device,pool:this.getSnapshot().pool})
+  if(method==='GET'&&pathname==='/api/status')return sendJson(res,200,{shares:this.prefs.allowDownload?this.getSnapshot().shares.map(({path,...safe})=>safe):[],uploadAllowed:this.prefs.allowPoolUpload,downloadAllowed:this.prefs.allowDownload,poolDownloadAllowed:this.prefs.allowPoolDownload,maxUploads:this.prefs.maxUploads,maxChunkBytes:MAX_CHUNK_BYTES,device,pool:this.getSnapshot().pool})
   if(method==='GET'&&pathname==='/api/events'){
    res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache, no-transform','Connection':'keep-alive'})
    res.write('event: connected\ndata: {}\n\n')
@@ -429,30 +484,37 @@ export class FileTransferService extends EventEmitter {
     if(disk.bavail*disk.bsize<size+this.pendingReservationBytes-size+2*GIB)return sendJson(res,507,{error:'暂存盘剩余空间不足'})
     temp=path.join(this.tempRoot!,id+'.part')
     await fs.writeFile(temp,Buffer.alloc(0),{flag:'wx',mode:0o600})
-    this.uploads.set(id,{id,name:safeFilename(name),size,received:0,ip,status:'uploading',temp,owner:device.id,lastActive:Date.now(),relativeFolder,group})
+    this.uploads.set(id,{id,name:safeFilename(name),size,received:0,ip,status:'uploading',temp,owner:device.id,lastActive:Date.now(),relativeFolder,group,ranges:[],inflight:[],activeChunks:0,inflightBytes:0,activeRequests:new Set()})
    }catch(e){if(temp)await fs.rm(temp,{force:true}).catch(()=>{});throw e}
    finally{this.pendingReservationBytes-=size}
    this.tasks.set(id,{id,name:safeFilename(name),total:size,completed:0,direction:'upload',ip,status:'uploading'})
-   this.emitChange();return sendJson(res,201,{id,offset:0})
+   this.emitChange();return sendJson(res,201,{id,offset:0,received:0,ranges:[]})
   }
   const uploadMatch=/^\/api\/uploads\/([0-9a-f-]{36})(?:\/(complete))?$/.exec(pathname)
   if(uploadMatch){
    const u=this.uploads.get(uploadMatch[1])
    if(!u||u.owner!==device.id)return sendJson(res,404,{error:'上传任务不存在'})
    u.lastActive=Date.now()
-   if(method==='GET'&&!uploadMatch[2])return sendJson(res,200,{id:u.id,offset:u.received,total:u.size,status:u.status})
+   if(method==='GET'&&!uploadMatch[2])return sendJson(res,200,{id:u.id,offset:contiguousOffset(u.ranges),received:u.received,ranges:u.ranges,total:u.size,status:u.status})
    if(method==='DELETE'&&!uploadMatch[2]){
     if(u.status==='accepted'||u.status==='pending')return sendJson(res,409,{error:'文件已发布或正在发布'})
-    if(this.inProgressUploads.has(u.id))return sendJson(res,409,{error:'分片正在写入，请在当前分片结束后取消'})
-    await fs.rm(u.temp,{force:true});u.status='rejected';const task=this.tasks.get(u.id);if(task)task.status='cancelled';this.emitChange();return sendJson(res,200,{ok:true})
+    u.status='rejected'
+    const task=this.tasks.get(u.id);if(task)task.status='cancelled'
+    this.abortUploadRequests(u)
+    if(u.activeChunks===0)await this.cleanupRejectedUpload(u)
+    this.emitChange();return sendJson(res,200,{ok:true})
    }
    if(method==='POST'&&uploadMatch[2]){
     if(u.status!=='uploading'&&u.status!=='paused')return sendJson(res,409,{error:'状态不允许完成'})
-    if(u.received!==u.size)return sendJson(res,409,{error:'文件未完全上传',offset:u.received})
+    if(u.activeChunks>0||u.inflight.length>0||u.received!==u.size||contiguousOffset(u.ranges)!==u.size)
+     return sendJson(res,409,{error:'文件未完全上传',offset:contiguousOffset(u.ranges),received:u.received,ranges:u.ranges})
     u.status='pending';this.emitChange()
     let poolId:string
-    try{poolId=await this.pool.publish(u.temp,u.name,u.size,{deviceId:u.owner,deviceName:device.name||device.agent},u.relativeFolder,u.group)}
-    catch(error){if(u.status==='pending')u.status='paused';this.emitChange();throw error}
+    try{
+     if(u.fdPromise)await u.fdPromise
+     if(u.fd){await u.fd.sync();await this.closeUploadHandle(u)}
+     poolId=await this.pool.publish(u.temp,u.name,u.size,{deviceId:u.owner,deviceName:device.name||device.agent},u.relativeFolder,u.group)
+    }catch(error){if(u.status==='pending')u.status='paused';this.emitChange();throw error}
     if(this.uploads.get(u.id)?.status==='rejected'){await this.pool.remove([poolId]);return sendJson(res,409,{error:'文件池已清空'})}
     u.status='accepted';const task=this.tasks.get(u.id);if(task)task.status='completed';this.emitChange()
     if(this.window&&!this.window.isDestroyed()&&!this.window.isFocused()&&Notification.isSupported())new Notification({title:'ToolDock 文件池新增文件',body:u.name+' 已进入文件池'}).show()
@@ -460,26 +522,74 @@ export class FileTransferService extends EventEmitter {
    }
    if(method==='PUT'&&!uploadMatch[2]){
     if(u.status!=='uploading'&&u.status!=='paused')return sendJson(res,409,{error:'文件状态不允许写入'})
-    if(this.inProgressUploads.has(u.id)||this.inProgressUploads.size>=this.prefs.maxUploads)return sendJson(res,429,{error:'上传并发已满，请稍后重试'})
+    const maxGlobalChunks=Math.max(8,this.prefs.maxUploads*4)
+    if((u.activeChunks===0&&this.activeUploadTaskCount()>=this.prefs.maxUploads)||this.globalInflightChunks>=maxGlobalChunks)
+     return sendJson(res,429,{error:'上传并发已满，请稍后重试'})
     const offset=Number(url.searchParams.get('offset'))
     const length=Number(req.headers['content-length'])
-    if(!Number.isSafeInteger(offset)||offset!==u.received||!Number.isSafeInteger(length)||length<1||length>8*1024**2||offset+length>u.size)
-     return sendJson(res,409,{error:'分片偏移或长度无效',offset:u.received})
+    if(!Number.isSafeInteger(offset)||offset<0||!Number.isSafeInteger(length)||length<1||length>MAX_CHUNK_BYTES||offset+length>u.size)
+     return sendJson(res,409,{error:'分片偏移或长度无效',offset:contiguousOffset(u.ranges),received:u.received,ranges:u.ranges})
+    const end=offset+length
+    if(hasRangeOverlap(u.ranges,offset,end)||hasRangeOverlap(u.inflight,offset,end))
+     return sendJson(res,409,{error:'分片区间重复或正在写入',offset:contiguousOffset(u.ranges),received:u.received,ranges:u.ranges})
     const digest=String(req.headers['x-chunk-sha256']||'').toLowerCase()
     if(!/^[a-f0-9]{64}$/.test(digest))return sendJson(res,400,{error:'缺少有效 SHA-256'})
-    this.inProgressUploads.add(u.id)
+    u.inflight.push([offset,end])
+    u.activeChunks++
+    this.globalInflightChunks++
+    u.activeRequests.add(req)
+    let streamReported=0
     try{
-     const bytes:Buffer[]=[];let count=0
-     for await(const part of req){const b=Buffer.from(part as Buffer);count+=b.length;if(count>length)throw Error('分片超出声明长度');bytes.push(b)}
+     const data=Buffer.allocUnsafe(length)
+     let count=0
+     for await(const part of req){
+      const chunk=Buffer.isBuffer(part)?part:Buffer.from(part as Uint8Array)
+      if(count+chunk.length>length)throw Error('分片超出声明长度')
+      chunk.copy(data,count)
+      count+=chunk.length
+      u.inflightBytes+=chunk.length
+      streamReported+=chunk.length
+      const task=this.tasks.get(u.id);if(task)task.completed=Math.min(u.size,u.received+u.inflightBytes)
+      this.emitUploadProgress()
+     }
      if(count!==length)throw Error('分片不完整')
-     const data=Buffer.concat(bytes)
      if(createHash('sha256').update(data).digest('hex')!==digest)throw Error('分片 SHA-256 校验失败')
-     const handle=await fs.open(u.temp,'r+')
-     try{await handle.write(data,0,data.length,u.received);await handle.sync()}finally{await handle.close()}
-     if(this.uploads.get(u.id)?.status==='rejected'){await fs.rm(u.temp,{force:true}).catch(()=>{});return sendJson(res,409,{error:'文件池已被清空'})}
-     u.received+=length;u.status='uploading';const task=this.tasks.get(u.id);if(task)task.completed=u.received;this.emitChange()
-     return sendJson(res,200,{offset:u.received})
-    }finally{this.inProgressUploads.delete(u.id)}
+     if(this.uploads.get(u.id)?.status==='rejected'||this.cleaning)return sendJson(res,409,{error:'上传任务已取消'})
+     const handle=await this.ensureUploadFd(u)
+     if(this.uploads.get(u.id)?.status==='rejected'||this.cleaning)return sendJson(res,409,{error:'上传任务已取消'})
+     let written=0
+     while(written<data.length){
+      const result=await handle.write(data,written,data.length-written,offset+written)
+      if(!result.bytesWritten)throw Error('写入临时文件失败')
+      written+=result.bytesWritten
+     }
+     if(this.uploads.get(u.id)?.status==='rejected'||this.cleaning)return sendJson(res,409,{error:'文件池已被清空或任务已取消'})
+     u.inflightBytes=Math.max(0,u.inflightBytes-streamReported)
+     streamReported=0
+     u.ranges=mergeRange(u.ranges,offset,end)
+     u.received=sumRangeBytes(u.ranges)
+     u.lastActive=Date.now()
+     u.status='uploading'
+     const task=this.tasks.get(u.id);if(task)task.completed=Math.min(u.size,u.received+u.inflightBytes)
+     this.emitUploadProgress()
+     return sendJson(res,200,{offset:contiguousOffset(u.ranges),received:u.received})
+    }catch(error){
+     if(this.uploads.get(u.id)?.status==='rejected'&&!res.headersSent&&!res.destroyed)return sendJson(res,409,{error:'上传任务已取消'})
+     throw error
+    }finally{
+     if(streamReported>0){
+      u.inflightBytes=Math.max(0,u.inflightBytes-streamReported)
+      const task=this.tasks.get(u.id)
+      if(task&&task.status==='uploading')task.completed=Math.min(u.size,u.received+u.inflightBytes)
+     }
+     u.activeRequests.delete(req)
+     removeExactRange(u.inflight,offset,end)
+     u.activeChunks--
+     this.globalInflightChunks--
+     if((this.uploads.get(u.id)?.status==='rejected'||this.cleaning)&&u.activeChunks===0){
+      await this.cleanupRejectedUpload(u)
+     }
+    }
    }
   }
   return sendJson(res,404,{error:'接口不存在'})
@@ -506,7 +616,7 @@ export class FileTransferService extends EventEmitter {
   this.activeDownloads++
   const id=randomUUID();this.tasks.set(id,{id,name:s.name,direction:'download',total:end-start+1,completed:0,status:'running',ip:device.ip});this.activeResponses.set(id,res);this.downloadOwners.set(id,device.id);this.downloadShares.set(id,s.rootId||s.id);if(fromPool)this.poolDownloadIds.set(id,s.id);this.emitChange()
   try{
-   const stream=createReadStream(s.file,{start,end})
+   const stream=createReadStream(s.file,{start,end,highWaterMark:STREAM_HIGH_WATER_MARK})
    stream.on('data',b=>{const t=this.tasks.get(id);if(t)t.completed+=(b as Buffer).length})
    await pipeline(stream,res)
    this.tasks.get(id)!.status='completed'
@@ -544,7 +654,7 @@ export class FileTransferService extends EventEmitter {
       const realRoot=await fs.realpath(root.file),real=await fs.realpath(entry.path)
       const diff=path.relative(realRoot,real)
       if(diff==='..'||diff.startsWith('..'+path.sep)||path.isAbsolute(diff))throw Error('文件路径越界')
-      const stream=createReadStream(entry.path)
+      const stream=createReadStream(entry.path,{highWaterMark:STREAM_HIGH_WATER_MARK})
       activeStreams.add(stream)
       stream.on('data',b=>{task.completed=Math.min(task.total,task.completed+(b as Buffer).length)})
       stream.on('close',()=>activeStreams.delete(stream))
@@ -582,7 +692,7 @@ export class FileTransferService extends EventEmitter {
    if(entry.kind==='directory'){zip.addEmptyDirectory(name+'/');continue}
    if(!entry.file)continue
    zip.addReadStreamLazy(name,{size:entry.size,forceZip64Format:entry.size>=4*GIB},done=>{
-    const stream=createReadStream(entry.file!)
+    const stream=createReadStream(entry.file!,{highWaterMark:STREAM_HIGH_WATER_MARK})
     stream.on('data',b=>{task.completed+=Buffer.byteLength(b)})
     stream.on('error',()=>{if(task.status==='running')task.status='failed';res.destroy()})
     done(null,stream)

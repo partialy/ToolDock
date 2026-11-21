@@ -1,22 +1,23 @@
 import './style.css'
-import {sha256} from '@noble/hashes/sha2.js'
 import {initPools} from './pools'
-import {bytesToHex} from '@noble/hashes/utils.js'
 import {icon} from './icons'
 import {toast} from './toast'
 import {anchorNavigation,backNavigation,initNavigation,recordNavigation,type Crumb,type MobileTab,type NavState} from './navigation'
 
 type Share={id:string;name:string;size:number;kind:'file'|'directory';rootId?:string;status:'ready'|'changed'|'missing'}
 type Up={id:string;name:string;size:number;received:number;status:string}
+type ByteRange=[number,number]
 type Selection={key:string;file:File}
-type TransferJob={id:string;offset:number;file:File;relativeFolder:string;group:string;row:HTMLElement;button:HTMLButtonElement;paused:boolean;cancelled:boolean;running:boolean;finished:boolean}
+type TransferJob={id:string;confirmedBytes:number;file:File;relativeFolder:string;group:string;row:HTMLElement;button:HTMLButtonElement;paused:boolean;cancelled:boolean;running:boolean;finished:boolean;abortController:AbortController|null}
+const CHUNK_SIZE=4*1024**2
+const MAX_INFLIGHT_CHUNKS=5
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T
 const human=(n:number)=>n>=1024**3?(n/1024**3).toFixed(2)+' GiB':n>=1024**2?(n/1024**2).toFixed(1)+' MiB':n>=1024?(n/1024).toFixed(1)+' KiB':n+' B'
 const selected=new Map<string,Selection>()
 const selectedDownload=new Set<string>()
 const jobs=new Map<string,TransferJob>()
 const queued:TransferJob[]=[]
-let visibleShares:Share[]=[],rootShares:Share[]=[],crumbs:Crumb[]=[],nextKey=0,active=0,uploadEnabled=false
+let visibleShares:Share[]=[],rootShares:Share[]=[],crumbs:Crumb[]=[],nextKey=0,active=0,uploadEnabled=false,maxUploadFiles=2
 let mode:MobileTab='download'
 let navReady=false
 let treeSeq=0
@@ -249,6 +250,7 @@ async function refresh(){
  for(const id of selectedDownload){const entry=knownShares.get(id);if(!entry||!validRoots.has(entry.rootId||entry.id)||(visibleBefore.has(id)&&!visibleAfter.has(id)))selectedDownload.delete(id)}
  renderDownloadSelection()
  uploadEnabled=Boolean(status.uploadAllowed)
+ if(typeof status.maxUploads==='number'&&status.maxUploads>=1&&status.maxUploads<=4)maxUploadFiles=status.maxUploads
  $('choose').toggleAttribute('disabled',!uploadEnabled)
  $('pick-files').toggleAttribute('disabled',!uploadEnabled)
  $('pick-folder').toggleAttribute('disabled',!uploadEnabled)
@@ -260,8 +262,10 @@ async function refresh(){
 async function syncUploads(){
  const {uploads}=await json('/api/uploads') as {uploads:Up[]}
  for(const u of uploads){
-  const el=jobs.get(u.id)?.row
-  if(!el)continue
+  const job=jobs.get(u.id)
+  if(!job||job.running)continue
+  job.confirmedBytes=u.received
+  const el=job.row
   const progress=el.querySelector('progress')
   if(progress){progress.max=u.size;progress.value=u.received}
   const status=el.querySelector<HTMLElement>('.meta')
@@ -271,10 +275,147 @@ async function syncUploads(){
   }
  }
 }
+/** 独立 Worker 池：将分片 SHA-256 计算移出主线程，并通过 Transferable 零拷贝传递缓冲区。 */
+class HashWorkerPool{
+ private workers:{worker:Worker;busy:number}[]=[]
+ private pending=new Map<number,{resolve:(v:{digest:string;buffer:ArrayBuffer})=>void;reject:(e:Error)=>void;slot:{worker:Worker;busy:number}}>()
+ private seq=0
+ private ensure(){
+  if(this.workers.length)return
+  const count=Math.min(4,Math.max(2,Math.floor((navigator.hardwareConcurrency||4)/2)))
+  for(let i=0;i<count;i++){
+   const worker=new Worker('/hash-worker.js')
+   const slot={worker,busy:0}
+   worker.onmessage=(event:MessageEvent<{id:number;digest:string;buffer:ArrayBuffer}>)=>{
+    const item=this.pending.get(event.data.id)
+    if(!item)return
+    this.pending.delete(event.data.id)
+    item.slot.busy=Math.max(0,item.slot.busy-1)
+    item.resolve({digest:event.data.digest,buffer:event.data.buffer})
+   }
+   worker.onerror=()=>{
+    for(const [id,item] of this.pending){
+     if(item.slot!==slot)continue
+     this.pending.delete(id)
+     slot.busy=Math.max(0,slot.busy-1)
+     item.reject(Error('分片校验线程异常'))
+    }
+   }
+   this.workers.push(slot)
+  }
+ }
+ hash(buffer:ArrayBuffer,signal:AbortSignal):Promise<{digest:string;buffer:ArrayBuffer}>{
+  if(signal.aborted)return Promise.reject(new DOMException('Aborted','AbortError'))
+  this.ensure()
+  let chosen=this.workers[0]
+  for(const candidate of this.workers)if(candidate.busy<chosen.busy)chosen=candidate
+  const id=++this.seq
+  chosen.busy++
+  return new Promise((resolve,reject)=>{
+   const onAbort=()=>{
+    const entry=this.pending.get(id)
+    if(!entry)return
+    this.pending.delete(id)
+    entry.slot.busy=Math.max(0,entry.slot.busy-1)
+    reject(new DOMException('Aborted','AbortError'))
+   }
+   signal.addEventListener('abort',onAbort,{once:true})
+   this.pending.set(id,{
+    slot:chosen,
+    resolve:v=>{signal.removeEventListener('abort',onAbort);resolve(v)},
+    reject:e=>{signal.removeEventListener('abort',onAbort);reject(e)}
+   })
+   chosen.worker.postMessage({id,buffer},[buffer])
+  })
+ }
+}
+const hashPool=new HashWorkerPool()
+let inflightChunks=0
+const chunkWaiters:Array<()=>void>=[]
+async function acquireChunkSlot(signal:AbortSignal){
+ if(signal.aborted)throw new DOMException('Aborted','AbortError')
+ if(inflightChunks<MAX_INFLIGHT_CHUNKS){inflightChunks++;return}
+ await new Promise<void>((resolve,reject)=>{
+  const onAbort=()=>{
+   const index=chunkWaiters.indexOf(grant)
+   if(index>=0)chunkWaiters.splice(index,1)
+   reject(new DOMException('Aborted','AbortError'))
+  }
+  const grant=()=>{signal.removeEventListener('abort',onAbort);resolve()}
+  signal.addEventListener('abort',onAbort,{once:true})
+  chunkWaiters.push(grant)
+ })
+}
+function releaseChunkSlot(){
+ const next=chunkWaiters.shift()
+ if(next)next()
+ else inflightChunks=Math.max(0,inflightChunks-1)
+}
+function mergeByteRange(ranges:ByteRange[],start:number,end:number):ByteRange[]{
+ const next:ByteRange[]=[]
+ let ms=start,me=end,inserted=false
+ for(const [l,r] of ranges){
+  if(r<ms){next.push([l,r]);continue}
+  if(l>me){if(!inserted){next.push([ms,me]);inserted=true}next.push([l,r]);continue}
+  ms=Math.min(ms,l);me=Math.max(me,r)
+ }
+ if(!inserted)next.push([ms,me])
+ return next
+}
+const sumRanges=(ranges:readonly ByteRange[])=>ranges.reduce((n,[l,r])=>n+(r-l),0)
+const isRangeCovered=(ranges:readonly ByteRange[],start:number,end:number)=>ranges.some(([l,r])=>l<=start&&r>=end)
+function buildMissingChunks(totalSize:number,ranges:readonly ByteRange[],chunkSize:number):ByteRange[]{
+ const chunks:ByteRange[]=[]
+ let cursor=0
+ for(const [left,right] of ranges){
+  if(left>cursor){
+   const stop=Math.min(left,totalSize)
+   for(let p=cursor;p<stop;p+=chunkSize)chunks.push([p,Math.min(p+chunkSize,stop)])
+  }
+  cursor=Math.max(cursor,right)
+  if(cursor>=totalSize)break
+ }
+ for(let p=cursor;p<totalSize;p+=chunkSize)chunks.push([p,Math.min(p+chunkSize,totalSize)])
+ return chunks
+}
+function sleep(ms:number,signal:AbortSignal){
+ return new Promise<void>((resolve,reject)=>{
+  if(signal.aborted){reject(new DOMException('Aborted','AbortError'));return}
+  const timer=setTimeout(()=>{signal.removeEventListener('abort',onAbort);resolve()},ms)
+  const onAbort=()=>{clearTimeout(timer);reject(new DOMException('Aborted','AbortError'))}
+  signal.addEventListener('abort',onAbort,{once:true})
+ })
+}
+const isAbortError=(e:unknown)=>e instanceof DOMException&&e.name==='AbortError'
+/** 使用 XMLHttpRequest 发送分片以获得实时的 upload.onprogress 字节进度。 */
+function putChunk(url:string,body:ArrayBuffer,digest:string,signal:AbortSignal,onProgress:(loaded:number)=>void){
+ return new Promise<{status:number;data:any}>((resolve,reject)=>{
+  if(signal.aborted){reject(new DOMException('Aborted','AbortError'));return}
+  const xhr=new XMLHttpRequest()
+  xhr.open('PUT',url)
+  xhr.withCredentials=true
+  xhr.setRequestHeader('X-ToolDock-Request','1')
+  xhr.setRequestHeader('X-Chunk-SHA256',digest)
+  xhr.setRequestHeader('Content-Type','application/octet-stream')
+  const cleanup=()=>signal.removeEventListener('abort',onAbort)
+  const onAbort=()=>xhr.abort()
+  signal.addEventListener('abort',onAbort,{once:true})
+  xhr.upload.onprogress=event=>{if(event.lengthComputable)onProgress(event.loaded)}
+  xhr.onload=()=>{
+   cleanup()
+   let data:any={}
+   try{data=xhr.responseText?JSON.parse(xhr.responseText):{}}catch{}
+   resolve({status:xhr.status,data})
+  }
+  xhr.onerror=()=>{cleanup();reject(new TypeError('Network error'))}
+  xhr.onabort=()=>{cleanup();reject(new DOMException('Aborted','AbortError'))}
+  xhr.send(body)
+ })
+}
 function runQueue(){
- while(active<2&&queued.length){
+ while(active<maxUploadFiles&&queued.length){
   const job=queued.shift()!
-  if(job.cancelled)continue
+  if(job.cancelled||job.paused)continue
   active++
   void upload(job).finally(()=>{active--;runQueue()})
  }
@@ -293,55 +434,146 @@ function enqueue(files:File[]){
   row.append(rowIcon(file.name),info,actions);$('uploads').prepend(row)
   const relativeFolder=(file.webkitRelativePath||'').split('/').slice(0,-1).join('/')
   const previous=cached[signature(file)]
-  const job:TransferJob={id:previous?.id||'',offset:0,file,relativeFolder,group:previous?.group||group,row,button:pause,paused:false,cancelled:false,running:false,finished:false}
-  pause.onclick=()=>{if(job.finished||job.cancelled)return;job.paused=!job.paused;pause.textContent=job.paused?'继续':'暂停';if(!job.paused&&!job.running){queued.push(job);runQueue()}}
-  cancel.onclick=()=>{job.cancelled=true;job.paused=true;row.remove();const data=cacheRead();delete data[signature(job.file)];cacheWrite(data);if(!job.running&&job.id)void json('/api/uploads/'+job.id,{method:'DELETE'}).catch(e=>err(String(e)))}
+  const job:TransferJob={id:previous?.id||'',confirmedBytes:0,file,relativeFolder,group:previous?.group||group,row,button:pause,paused:false,cancelled:false,running:false,finished:false,abortController:null}
+  pause.onclick=()=>{
+   if(job.finished||job.cancelled)return
+   job.paused=!job.paused;pause.textContent=job.paused?'继续':'暂停'
+   if(job.paused)job.abortController?.abort()
+   else if(!job.running&&!queued.includes(job)){queued.push(job);runQueue()}
+  }
+  cancel.onclick=()=>{
+   job.cancelled=true;job.paused=true;job.abortController?.abort();row.remove()
+   const data=cacheRead();delete data[signature(job.file)];cacheWrite(data)
+   if(!job.running&&job.id)void json('/api/uploads/'+job.id,{method:'DELETE'}).catch(e=>err(String(e)))
+  }
   queued.push(job);subtitle.textContent='已加入发送队列 · '+human(file.size)
  }
  runQueue()
 }
 async function upload(job:TransferJob){
- if(job.running||job.finished||job.cancelled)return
+ if(job.running||job.finished||job.cancelled||job.paused)return
  job.running=true
+ const controller=new AbortController()
+ job.abortController=controller
  const {file,row,button:pause}=job
  const meta=row.querySelector<HTMLElement>('.meta')!
  const bar=row.querySelector('progress')!
  try{
+  let confirmedRanges:ByteRange[]=[]
   if(!job.id){
    const created=await post('/api/uploads',{name:file.name,size:file.size,relativeFolder:job.relativeFolder,group:job.group})
    job.id=created.id;jobs.set(job.id,job)
    const data=cacheRead();data[signature(file)]={id:job.id,group:job.group,relativeFolder:job.relativeFolder};cacheWrite(data)
    row.dataset.uploadId=job.id
   }else{
-   try{const state=await json('/api/uploads/'+job.id);job.offset=state.offset;if(state.status==='accepted'){job.finished=true;return}}
-   catch{const created=await post('/api/uploads',{name:file.name,size:file.size,relativeFolder:job.relativeFolder,group:job.group});job.id=created.id;job.offset=0;const data=cacheRead();data[signature(file)]={id:job.id,group:job.group,relativeFolder:job.relativeFolder};cacheWrite(data)}
-   jobs.set(job.id,job)
-  }
-  while(job.offset<file.size&&!job.paused&&!job.cancelled){
-   const bytes=new Uint8Array(await file.slice(job.offset,Math.min(job.offset+4*1024**2,file.size)).arrayBuffer())
-   const digest=bytesToHex(sha256(bytes))
-   const res=await fetch('/api/uploads/'+job.id+'?offset='+job.offset,{method:'PUT',headers:{'X-ToolDock-Request':'1','X-Chunk-SHA256':digest,'Content-Type':'application/octet-stream'},body:bytes as BodyInit})
-   const result=await res.json()
-   if(!res.ok){
-    const actual=await json('/api/uploads/'+job.id)
-    if(actual.offset!==undefined&&actual.offset!==job.offset){job.offset=actual.offset;continue}
-    throw Error(result.error||'上传分片失败')
+   try{
+    const state=await json('/api/uploads/'+job.id)
+    if(state.status==='accepted'){job.finished=true;return}
+    confirmedRanges=Array.isArray(state.ranges)?state.ranges:(state.offset>0?[[0,state.offset]]:[])
+   }catch{
+    const created=await post('/api/uploads',{name:file.name,size:file.size,relativeFolder:job.relativeFolder,group:job.group})
+    job.id=created.id;confirmedRanges=[]
+    const data=cacheRead();data[signature(file)]={id:job.id,group:job.group,relativeFolder:job.relativeFolder};cacheWrite(data)
    }
-   job.offset=result.offset;bar.value=job.offset
-   meta.textContent=human(job.offset)+' / '+human(file.size)+' · 上传中'
+   jobs.set(job.id,job)
+   row.dataset.uploadId=job.id
   }
-  if(job.offset===file.size&&!job.cancelled){
+  job.confirmedBytes=sumRanges(confirmedRanges)
+  bar.value=job.confirmedBytes
+  const inflightLoaded=new Map<number,number>()
+  let displayedPeak=job.confirmedBytes
+  let lastUiUpdate=0
+  const speedSamples:Array<{t:number;b:number}>=[{t:performance.now(),b:job.confirmedBytes}]
+  const updateProgress=(force=false)=>{
+   const now=performance.now()
+   if(!force&&now-lastUiUpdate<100)return
+   lastUiUpdate=now
+   job.confirmedBytes=sumRanges(confirmedRanges)
+   let inflightSum=0
+   for(const [offset,loaded] of inflightLoaded){
+    if(!isRangeCovered(confirmedRanges,offset,offset+1))inflightSum+=loaded
+   }
+   const totalNow=Math.min(file.size,job.confirmedBytes+inflightSum)
+   displayedPeak=Math.max(displayedPeak,totalNow)
+   bar.value=displayedPeak
+   speedSamples.push({t:now,b:displayedPeak})
+   while(speedSamples.length>2&&now-speedSamples[0].t>2500)speedSamples.shift()
+   const elapsed=(now-speedSamples[0].t)/1000
+   const rate=elapsed>0.15?(displayedPeak-speedSamples[0].b)/elapsed:0
+   meta.textContent=human(displayedPeak)+' / '+human(file.size)+' · 上传中'+(rate>0?' · '+human(rate)+'/s':'')
+  }
+  if(job.confirmedBytes>0)updateProgress(true)
+  const pendingChunks=buildMissingChunks(file.size,confirmedRanges,CHUNK_SIZE)
+  let fatalError:unknown=null
+  const workerCount=Math.min(MAX_INFLIGHT_CHUNKS,pendingChunks.length)
+  const sendChunk=async(start:number,end:number)=>{
+   const raw=await file.slice(start,end).arrayBuffer()
+   if(controller.signal.aborted||job.paused||job.cancelled)return
+   const {digest,buffer}=await hashPool.hash(raw,controller.signal)
+   for(let attempt=0;attempt<=4;attempt++){
+    if(job.paused||job.cancelled||controller.signal.aborted)return
+    let retryDelay=0
+    await acquireChunkSlot(controller.signal)
+    try{
+     const {status,data:result}=await putChunk('/api/uploads/'+job.id+'?offset='+start,buffer,digest,controller.signal,loaded=>{
+      inflightLoaded.set(start,Math.min(end-start,loaded))
+      updateProgress(false)
+     })
+     inflightLoaded.delete(start)
+     if(status===429&&attempt<4){retryDelay=250*2**attempt}
+     else if(status===409&&Array.isArray(result.ranges)){
+      confirmedRanges=result.ranges
+      if(isRangeCovered(confirmedRanges,start,end)){updateProgress(true);return}
+      throw Error(result.error||'分片偏移冲突')
+     }else if(status<200||status>=300){
+      throw Error(result.error||'上传分片失败')
+     }else{
+      confirmedRanges=mergeByteRange(confirmedRanges,start,end)
+      updateProgress(true)
+      return
+     }
+    }catch(e){
+     inflightLoaded.delete(start)
+     if(isAbortError(e)||job.paused||job.cancelled)return
+     if(attempt>=4||!(e instanceof TypeError))throw e
+     retryDelay=250*2**attempt
+    }finally{
+     releaseChunkSlot()
+    }
+    if(retryDelay>0)await sleep(retryDelay,controller.signal)
+   }
+  }
+  if(workerCount>0){
+   await Promise.all(Array.from({length:workerCount},async()=>{
+    while(!job.paused&&!job.cancelled&&!fatalError){
+     const next=pendingChunks.shift()
+     if(!next)break
+     try{await sendChunk(next[0],next[1])}
+     catch(e){
+      if(!isAbortError(e)&&!job.paused&&!job.cancelled&&!fatalError){
+       fatalError=e
+       controller.abort()
+      }
+      break
+     }
+    }
+   }))
+  }
+  if(fatalError&&!job.paused&&!job.cancelled)throw fatalError
+  if(!job.paused&&!job.cancelled&&job.confirmedBytes===file.size){
    await post('/api/uploads/'+job.id+'/complete',{})
    job.finished=true;meta.textContent='已进入共享文件池'
    pause.disabled=true;pause.textContent='已完成'
    const data=cacheRead();delete data[signature(file)];cacheWrite(data)
    pools.scheduleRefresh()
-  }else if(!job.cancelled)meta.textContent=human(job.offset)+' / '+human(file.size)+' · 已暂停'
+  }else if(!job.cancelled)meta.textContent=human(job.confirmedBytes)+' / '+human(file.size)+' · 已暂停'
  }catch(e){
-  if(!job.cancelled){job.paused=true;pause.textContent='继续';meta.textContent='发送中断，可点击继续';err('发送 '+file.name+' 失败：'+String(e))}
+  if(!job.cancelled&&!isAbortError(e)){job.paused=true;pause.textContent='继续';meta.textContent='发送中断，可点击继续';err('发送 '+file.name+' 失败：'+String(e))}
  }finally{
   job.running=false
+  if(job.abortController===controller)job.abortController=null
   if(job.cancelled&&job.id)await json('/api/uploads/'+job.id,{method:'DELETE'}).catch(()=>{})
+  else if(!job.paused&&!job.finished&&!job.cancelled&&!queued.includes(job)){queued.push(job);runQueue()}
  }
 }
 $<HTMLAnchorElement>('download-selected').addEventListener('click',e=>{const selected=[...selectedDownload].map(id=>knownShares.get(id)).filter((x):x is Share=>Boolean(x));if(selected.length===1&&selected[0].kind==='file')return;e.preventDefault();if(selected.length)void downloadArchive(selected.map(x=>x.id)).catch(e=>err(String(e)))})
