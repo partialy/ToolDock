@@ -25,6 +25,8 @@ import {getDashboardSnapshot} from './services/dashboard'
 import {registerTextConversionIpc} from './services/text-conversion/ipc'
 import {AudioEditingService} from './services/audio-editing/audio-editing-service'
 import {registerAudioEditingIpc} from './services/audio-editing/audio-ipc'
+import {EnvManagerService} from './services/env-manager/env-storage'
+import {registerEnvManagerIpc} from './services/env-manager/env-ipc'
 
 protocol.registerSchemesAsPrivileged([{scheme:'tooldock-audio',privileges:{standard:true,secure:true,stream:true,supportFetchAPI:true}}])
 const devMode=!app.isPackaged
@@ -70,6 +72,7 @@ const quickLaunch=new QuickLaunchService(()=>win)
 const media=new MediaService(()=>win)
 const audio=new AudioEditingService(()=>win)
 const textConversion=new TextConversionService(()=>win)
+const envManager=new EnvManagerService()
 const isMain=(event:Electron.IpcMainInvokeEvent)=>!!win&&!win.isDestroyed()&&event.sender===win.webContents&&event.senderFrame===win.webContents.mainFrame
 function register<T>(channel:string,fn:(arg:T)=>unknown|Promise<unknown>){ipcMain.handle(channel,async(e,arg:T)=>{if(!isMain(e))throw Error('不可信的 IPC 来源');try{return await fn(arg)}catch(e){recordEvent('ipc-failed:'+channel,'error');throw e}})}
 const text=z.string().min(1).max(500)
@@ -87,6 +90,7 @@ function channels(){
  registerMediaIpc(register,media,()=>win)
  registerAudioEditingIpc(register,audio,()=>win)
  registerTextConversionIpc(register,textConversion,()=>win)
+ registerEnvManagerIpc(register,envManager,()=>win)
  register('app:ready',()=>{rendererReady=true;flushPinnedNavigation()})
  const appVersion=z.strictObject({id:z.uuid(),revision:z.number().int().positive()})
  register('quickLaunch:list',()=>quickLaunch.list())
@@ -195,11 +199,11 @@ function channels(){
  register('views:clearData',(id:unknown)=>clearWebData(win!,text.parse(id)))
  register('data:info',()=>getDataInfo())
  register('data:choose',()=>chooseDataFolder(win!))
- register('data:migrate',(a:unknown)=>audio.dataMutation(()=>textConversion.dataMutation(()=>media.dataMutation(()=>quickLaunch.dataMutation(()=>{if(fileTransfer.getSnapshot().running)throw Error('请先停止文件快传服务再迁移数据目录');return migrateData(win!,z.string().min(3).max(1024).parse(a))})))))
- register('data:deleteOld',(a:unknown)=>audio.dataMutation(()=>textConversion.dataMutation(()=>media.dataMutation(()=>quickLaunch.dataMutation(()=>deleteOldData(text.parse(a)))))))
+ register('data:migrate',(a:unknown)=>envManager.dataMutation(()=>audio.dataMutation(()=>textConversion.dataMutation(()=>media.dataMutation(()=>quickLaunch.dataMutation(()=>{if(fileTransfer.getSnapshot().running)throw Error('请先停止文件快传服务再迁移数据目录');return migrateData(win!,z.string().min(3).max(1024).parse(a))}))))))
+ register('data:deleteOld',(a:unknown)=>envManager.dataMutation(()=>audio.dataMutation(()=>textConversion.dataMutation(()=>media.dataMutation(()=>quickLaunch.dataMutation(()=>deleteOldData(text.parse(a))))))))
  register('data:openFolder',()=>openDataFolder())
- register('data:backup',()=>audio.dataMutation(()=>textConversion.dataMutation(()=>media.dataMutation(()=>quickLaunch.backup(()=>backupData(win!))))))
- register('data:restore',()=>audio.dataMutation(()=>textConversion.dataMutation(()=>media.dataMutation(()=>quickLaunch.dataMutation(()=>{if(fileTransfer.getSnapshot().running)throw Error('请先停止文件快传服务并清理临时共享内容，再恢复数据备份');return restoreData(win!)})))))
+ register('data:backup',()=>envManager.dataMutation(()=>audio.dataMutation(()=>textConversion.dataMutation(()=>media.dataMutation(()=>quickLaunch.backup(()=>backupData(win!)))))))
+ register('data:restore',()=>envManager.dataMutation(()=>audio.dataMutation(()=>textConversion.dataMutation(()=>media.dataMutation(()=>quickLaunch.dataMutation(()=>{if(fileTransfer.getSnapshot().running)throw Error('请先停止文件快传服务并清理临时共享内容，再恢复数据备份');return restoreData(win!)}))))))
  register('data:exportLogs',()=>exportLogs(win!))
  register('data:clearLogs',()=>clearLogs())
  register('data:restart',()=>{app.relaunch();app.quit()})

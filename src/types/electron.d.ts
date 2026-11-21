@@ -6,6 +6,7 @@ import type {AudioAPI} from '../shared/audioEditingModels'
 import type {TextConversionAPI} from '../shared/textConversionModels'
 import type {PipelineInput,PipelineSaved,PipelineSummary} from '../shared/codecModels'
 import type {KillInput,JunctionInput,JunctionPreview,JunctionResult,PortQueryResult,TerminateResult} from '../shared/commandModels'
+import type {EnvManagerAPI} from '../shared/envManagerModels'
 import type {TransferPreferences,TransferSnapshot,SharedFile,LanInterface,ShareHistory,DirectoryPage,DirectoryStats,AddSourcesResult,PoolPage,PoolMessagesPage} from '../shared/fileTransferModels'
 export interface ToolDockAPI {
   dashboard:{snapshot():Promise<DashboardSnapshot>;onChange(cb:()=>void):()=>void}
@@ -15,6 +16,7 @@ export interface ToolDockAPI {
   textConversion:TextConversionAPI
   quickLaunch:QuickLaunchAPI
   commands:{queryPort(port:number):Promise<PortQueryResult>;terminate(input:KillInput):Promise<TerminateResult>;chooseDirectory():Promise<string|null>;validateJunction(input:JunctionInput):Promise<JunctionPreview>;createJunction(input:JunctionInput):Promise<JunctionResult>;openFolder(path:string):Promise<void>}
+  envManager:EnvManagerAPI
   codecPipelines:{list():Promise<PipelineSummary[]>;get(id:string):Promise<PipelineSaved>;create(data:PipelineInput):Promise<PipelineSaved>;update(id:string,expectedRevision:number,data:PipelineInput):Promise<PipelineSaved>;duplicate(id:string,newName?:string):Promise<PipelineSaved>;remove(id:string,expectedRevision?:number):Promise<void>}
   window: { minimize(): Promise<void>; toggleMaximize(): Promise<void>; close(): Promise<void>; isMaximized(): Promise<boolean> }
   categories: { list(): Promise<Category[]>; save(input: Partial<Category> & {name: string}): Promise<Category>; remove(id:string):Promise<void>; reorder(ids:string[]):Promise<void> }

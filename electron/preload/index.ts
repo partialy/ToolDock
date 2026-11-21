@@ -55,6 +55,22 @@ const api={
   onChange:(cb:()=>void)=>{const fn=()=>cb();ipcRenderer.on('quickLaunch:changed',fn);return()=>ipcRenderer.off('quickLaunch:changed',fn)}
  },
  commands:{queryPort:(port:number)=>invoke('commands:queryPort',port),terminate:(input:unknown)=>invoke('commands:terminate',input),chooseDirectory:()=>invoke('commands:chooseDirectory'),validateJunction:(input:unknown)=>invoke('commands:validateJunction',input),createJunction:(input:unknown)=>invoke('commands:createJunction',input),openFolder:(path:string)=>invoke('commands:openFolder',path)},
+ envManager:{
+  getState:()=>invoke('envManager:getState'),
+  applyChanges:(input:unknown)=>invoke('envManager:applyChanges',input),
+  whereIs:(query:string)=>invoke('envManager:whereIs',query),
+  listGroups:()=>invoke('envManager:listGroups'),
+  saveGroup:(input:unknown)=>invoke('envManager:saveGroup',input),
+  removeGroup:(id:string)=>invoke('envManager:removeGroup',id),
+  activateCandidate:(groupId:string,candidateId:string|null)=>invoke('envManager:activateCandidate',{groupId,candidateId}),
+  listSnapshots:()=>invoke('envManager:listSnapshots'),
+  getSnapshot:(id:string)=>invoke('envManager:getSnapshot',id),
+  createSnapshot:(title:string)=>invoke('envManager:createSnapshot',title),
+  removeSnapshot:(id:string)=>invoke('envManager:removeSnapshot',id),
+  restoreSnapshot:(id:string)=>invoke('envManager:restoreSnapshot',id),
+  exportSnapshot:(id?:string)=>invoke('envManager:exportSnapshot',id),
+  importSnapshot:()=>invoke('envManager:importSnapshot')
+ },
  codecPipelines:{list:()=>invoke('codecPipelines:list'),get:(id:string)=>invoke('codecPipelines:get',id),create:(data:unknown)=>invoke('codecPipelines:create',data),update:(id:string,expectedRevision:number,data:unknown)=>invoke('codecPipelines:update',{id,expectedRevision,data}),duplicate:(id:string,newName?:string)=>invoke('codecPipelines:duplicate',{id,newName}),remove:(id:string,expectedRevision?:number)=>invoke('codecPipelines:remove',{id,expectedRevision})},
  window:{
   minimize:()=>invoke('window:minimize'),toggleMaximize:()=>invoke('window:toggleMaximize'),

@@ -60,3 +60,5 @@
 
 - 手机快传页在 `src/mobile-transfer`（原生 TS + HTML/CSS，`vite.mobile.config.ts` 构建到 `out/mobile-transfer`，由 transfer 服务 `handle()` 直接提供静态文件）。页面使用底部三项导航（分享/文件池/消息池，上图标下文字），顶部不再保留标题、连接状态与设备名区域；页面内提示统一走 `src/mobile-transfer/toast.ts` 的 toast，不再使用固定错误条。
 - 手机设备名由主进程 `LanAuth.authorize()` 自动分配，格式 `单词-4位后缀`（后缀字符集 `23456789ABCDEFGHJKMNPQRSTUVWXYZ`，排除易混淆的 0 O 1 I L；词表见 `electron/main/services/transfer/device-names.ts`），在当前在线设备内唯一、刷新保持、不可手动改名；文件池与消息归属均使用该名称。二级页面（目录层级、上传抽屉、文本查看器）通过 `src/mobile-transfer/navigation.ts` 压入 history，手机返回键按层级后退，一级 tab 切换不压栈。
+
+- 系统环境变量管理工具固定内置 ID `builtin-env-manager`、路由 `env-manager`、默认分类 `developer`，通过 SQLite v15 增量注册，不复活已删除的 `developer` 分类。采用受限 `envManager:*` IPC 与 `services/env-manager` 服务，无损读取 Windows 注册表（保留 `REG_SZ` 与 `REG_EXPAND_SZ`），禁止删除或清空 `ComSpec`、`SystemRoot`、`windir` 及系统 `Path` 中的 `System32`。非管理员状态下修改 `Machine` 变量通过单次受控 UAC 提权执行并广播 `WM_SETTINGCHANGE`。版本切换预设与历史快照（自动快照最多保留 30 份）存放在 `tools/env-manager`，跟随数据目录迁移但排除在普通全局 ZIP 备份之外，变量明文不写入日志。

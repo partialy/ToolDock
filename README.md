@@ -2,6 +2,13 @@
 
 Windows 桌面小工具聚合器。技术栈：Electron + React + TypeScript + electron-vite + Tailwind CSS + shadcn/ui 风格组件 + Motion + Lucide；本地数据使用 Node/Electron 内置 `node:sqlite`（无需额外 C++ SQLite 插件）。
 
+## v1.3.0 更新（2026-11-11）
+
+- 新增内置「环境变量」工具（`builtin-env-manager`，SQLite v15 增量注册，默认归入「开发工具」分类）：支持用户（HKCU）与系统（HKLM）环境变量无损读写（保留 `REG_SZ` 与 `REG_EXPAND_SZ`）、原始值与展开值一键切换、敏感变量掩码显示与多格式命令行复制。
+- 新增 `Path` 专项可视化分条编辑与 `Where-is` 命令冲突探测器：支持拖拽调整优先级、失效目录标红与一键清理、重复目录检测去重，以及按生效顺序扫描可执行文件定位被遮蔽版本。
+- 新增「一键切换版本 / 环境预设」与「自动快照回滚」：内置 Java / Go / Maven / 终端代理模板，自动识别当前激活方案并一键切换；每次修改前自动保存历史快照（保留最近 30 份），支持 Diff 对比、一键回滚与独立 JSON 导入导出。
+- 系统核心变量安全护栏与按需提权：禁止删除或清空 `ComSpec`、`SystemRoot`、`windir` 及系统 `Path` 中的 `System32`；非管理员状态下修改系统变量合并为单次 UAC 提权执行并广播 `WM_SETTINGCHANGE` 立即生效。
+
 ## v1.2.0 更新（2026-11-08）
 
 - 文件快传升级为「文件池 / 主设备共享 / 消息池」三种模式：保留原路径分享，新增多设备共享文件池、移动端上传与下载、目录浏览、搜索、批量保存、ZIP 打包及受控预览。

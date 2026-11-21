@@ -2,8 +2,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type AdmZip from 'adm-zip'
 
-const runtime='tools/quick-launch/runtime'
-const excluded=(name:string)=>name.toLowerCase()===runtime||name.toLowerCase().startsWith(runtime+'/')
+const excludedRoots=['tools/quick-launch/runtime','tools/env-manager']
+const excluded=(name:string)=>{
+ const lower=name.toLowerCase()
+ return excludedRoots.some(r=>lower===r||lower.startsWith(r+'/'))
+}
 
 /** 只归档普通文件，明确排除运行凭据，并拒绝跟随工具目录中的链接。 */
 export function addDataFolder(zip:AdmZip,root:string,sub:'tools'|'outputs'){

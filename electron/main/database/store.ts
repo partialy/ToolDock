@@ -12,6 +12,7 @@ import {migrateFileTransferHistory} from './migrations/011-add-file-transfer-his
 import {migrateVideoProcessing} from './migrations/012-add-video-processing'
 import {migrateTrayPins} from './migrations/013-add-tray-pins'
 import {migrateAudioEditing} from './migrations/014-add-audio-editing'
+import {migrateEnvManager} from './migrations/015-add-env-manager'
 import {TRANSFER_DEFAULTS} from '../../../src/shared/fileTransferModels'
 import { builtinById, builtinByTarget } from '../../../src/shared/builtinToolRegistry'
 import { app } from 'electron'
@@ -69,6 +70,7 @@ export function initStore() {
   migrateVideoProcessing(db)
   migrateTrayPins(db)
   migrateAudioEditing(db)
+  migrateEnvManager(db)
 
 }
 export function closeStore() { if(db?.open) { db.pragma('wal_checkpoint(TRUNCATE)'); db.close() } }
