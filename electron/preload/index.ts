@@ -72,6 +72,23 @@ const api={
   importSnapshot:()=>invoke('envManager:importSnapshot')
  },
  codecPipelines:{list:()=>invoke('codecPipelines:list'),get:(id:string)=>invoke('codecPipelines:get',id),create:(data:unknown)=>invoke('codecPipelines:create',data),update:(id:string,expectedRevision:number,data:unknown)=>invoke('codecPipelines:update',{id,expectedRevision,data}),duplicate:(id:string,newName?:string)=>invoke('codecPipelines:duplicate',{id,newName}),remove:(id:string,expectedRevision?:number)=>invoke('codecPipelines:remove',{id,expectedRevision})},
+ batchRename:{
+  chooseFiles:()=>invoke('batchRename:chooseFiles'),
+  chooseFolder:()=>invoke('batchRename:chooseFolder'),
+  inspectSources:(paths:string[],includeSubdirs:boolean)=>invoke('batchRename:inspectSources',{paths,includeSubdirs}),
+  execute:(items:unknown)=>invoke('batchRename:execute',items),
+  undo:()=>invoke('batchRename:undo'),
+  canUndo:()=>invoke('batchRename:canUndo'),
+  pathForDroppedFile:(file:File)=>{try{return webUtils.getPathForFile(file)}catch{return ''}}
+ },
+ renamePresets:{
+  list:()=>invoke('renamePresets:list'),
+  get:(id:string)=>invoke('renamePresets:get',id),
+  create:(data:unknown)=>invoke('renamePresets:create',data),
+  update:(id:string,expectedRevision:number,data:unknown)=>invoke('renamePresets:update',{id,expectedRevision,data}),
+  duplicate:(id:string,newName?:string)=>invoke('renamePresets:duplicate',{id,newName}),
+  remove:(id:string,expectedRevision?:number)=>invoke('renamePresets:remove',{id,expectedRevision})
+ },
  window:{
   minimize:()=>invoke('window:minimize'),toggleMaximize:()=>invoke('window:toggleMaximize'),
   close:()=>invoke('window:close'),isMaximized:()=>invoke('window:isMaximized')

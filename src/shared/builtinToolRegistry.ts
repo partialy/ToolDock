@@ -11,6 +11,7 @@ export const BUILTIN_TOOLS = [
   { id:'builtin-image-encoding', target:'image-encoding', name:'图片编码', icon:'file-code-2', defaultCategoryId:'images' },
   { id:'builtin-qr-code-tool', target:'qr-code-tool', name:'二维码工具', icon:'qr-code', defaultCategoryId:'images' },
   { id:'builtin-file-transfer', target:'file-transfer', name:'文件快传', icon:'monitor-up', defaultCategoryId:'files' },
+  { id:'builtin-batch-rename', target:'batch-rename', name:'批量重命名', icon:'file-pen-line', defaultCategoryId:'files' },
   { id:'builtin-time-converter', target:'time-converter', name:'时间转换', icon:'clock-3', defaultCategoryId:'developer' },
   { id:'builtin-uuid-generator', target:'uuid-generator', name:'UUID 生成', icon:'fingerprint', defaultCategoryId:'developer' }
 ] as const

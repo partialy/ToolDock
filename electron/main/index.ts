@@ -27,6 +27,8 @@ import {AudioEditingService} from './services/audio-editing/audio-editing-servic
 import {registerAudioEditingIpc} from './services/audio-editing/audio-ipc'
 import {EnvManagerService} from './services/env-manager/env-storage'
 import {registerEnvManagerIpc} from './services/env-manager/env-ipc'
+import {BatchRenameService} from './services/batch-rename/batch-rename-service'
+import {registerBatchRenameIpc} from './services/batch-rename/batch-rename-ipc'
 
 protocol.registerSchemesAsPrivileged([{scheme:'tooldock-audio',privileges:{standard:true,secure:true,stream:true,supportFetchAPI:true}}])
 const devMode=!app.isPackaged
@@ -73,6 +75,7 @@ const media=new MediaService(()=>win)
 const audio=new AudioEditingService(()=>win)
 const textConversion=new TextConversionService(()=>win)
 const envManager=new EnvManagerService()
+const batchRename=new BatchRenameService()
 const isMain=(event:Electron.IpcMainInvokeEvent)=>!!win&&!win.isDestroyed()&&event.sender===win.webContents&&event.senderFrame===win.webContents.mainFrame
 function register<T>(channel:string,fn:(arg:T)=>unknown|Promise<unknown>){ipcMain.handle(channel,async(e,arg:T)=>{if(!isMain(e))throw Error('不可信的 IPC 来源');try{return await fn(arg)}catch(e){recordEvent('ipc-failed:'+channel,'error');throw e}})}
 const text=z.string().min(1).max(500)
@@ -91,6 +94,7 @@ function channels(){
  registerAudioEditingIpc(register,audio,()=>win)
  registerTextConversionIpc(register,textConversion,()=>win)
  registerEnvManagerIpc(register,envManager,()=>win)
+ registerBatchRenameIpc(register,batchRename,()=>win)
  register('app:ready',()=>{rendererReady=true;flushPinnedNavigation()})
  const appVersion=z.strictObject({id:z.uuid(),revision:z.number().int().positive()})
  register('quickLaunch:list',()=>quickLaunch.list())

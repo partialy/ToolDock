@@ -28,6 +28,7 @@ import { LogoIconGeneratorPage } from '@/pages/LogoIconGeneratorPage'
 import { ImageEncodingPage } from '@/pages/ImageEncodingPage'
 import { QrCodeToolPage } from '@/pages/QrCodeToolPage'
 import { FileTransferPage } from '@/pages/FileTransferPage'
+import { BatchRenamePage } from '@/pages/BatchRenamePage'
 import { VideoProcessingPage } from '@/pages/VideoProcessingPage'
 import {NotificationProvider} from '@/components/notifications/NotificationProvider'
 import { TimeConverterPage } from '@/pages/TimeConverterPage'
@@ -124,7 +125,7 @@ export default function App(){
   if(active==='about')return <div className="mx-auto max-w-3xl p-12"><div className="mb-4 flex items-center gap-3"><AppLogo size={48}/><h1 className="text-2xl font-semibold">ToolDock</h1></div><p className="mb-5 text-sm muted">桌面工具聚合平台 · v{version}</p><p className="text-sm leading-8 muted">将常用网页、开发工具与快捷启动集中在一个独立工作区。</p></div>
   if(tool?.type==='link')return <WebTool key={tool.id} toolId={tool.id}/>
   if(tool?.type==='internal'&&builtinByTarget(tool.target)){
-   const pages:Record<string,React.ReactNode>={'key-generator':<KeyGeneratorPage key={tool.id}/>,'json-tool':<JsonToolPage key={tool.id}/>,'text-diff':<TextDiffPage key={tool.id}/>,'codec-tool':<CodecToolPage key={tool.id}/>,'command-tool':<CommandToolPage key={tool.id}/>,'env-manager':<EnvManagerPage key={tool.id}/>,'image-processor':<ImageProcessorPage key={tool.id}/>,'logo-icon-generator':<LogoIconGeneratorPage key={tool.id}/>,'image-encoding':<ImageEncodingPage key={tool.id}/>,'qr-code-tool':<QrCodeToolPage key={tool.id}/>,'file-transfer':<FileTransferPage key={tool.id} focus={focus?.module==='file-transfer'?focus:null}/>,'time-converter':<TimeConverterPage key={tool.id}/>,'uuid-generator':<UuidGeneratorPage key={tool.id}/>}
+   const pages:Record<string,React.ReactNode>={'key-generator':<KeyGeneratorPage key={tool.id}/>,'json-tool':<JsonToolPage key={tool.id}/>,'text-diff':<TextDiffPage key={tool.id}/>,'codec-tool':<CodecToolPage key={tool.id}/>,'command-tool':<CommandToolPage key={tool.id}/>,'env-manager':<EnvManagerPage key={tool.id}/>,'image-processor':<ImageProcessorPage key={tool.id}/>,'logo-icon-generator':<LogoIconGeneratorPage key={tool.id}/>,'image-encoding':<ImageEncodingPage key={tool.id}/>,'qr-code-tool':<QrCodeToolPage key={tool.id}/>,'file-transfer':<FileTransferPage key={tool.id} focus={focus?.module==='file-transfer'?focus:null}/>,'batch-rename':<BatchRenamePage key={tool.id}/>,'time-converter':<TimeConverterPage key={tool.id}/>,'uuid-generator':<UuidGeneratorPage key={tool.id}/>}
    if(tool.target==='video-processing')return <VideoProcessingPage key={tool.id} focus={focus?.module==='video-processing'?focus:null}/>
    return pages[tool.target]
   }
