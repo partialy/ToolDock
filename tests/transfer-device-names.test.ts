@@ -44,15 +44,18 @@ describe('文件快传设备自动命名',()=>{
   expect(()=>nextDeviceName(new Set([word+'-2345']))).toThrow()
   expect(mocks.queue).toHaveLength(0)
  })
- it('LanAuth 授权时自动命名，刷新后同名，多设备不重名',()=>{
+ it('LanAuth 授权时自动命名并签发轻量令牌，重复携带保持同名且多设备不重名',()=>{
   const auth=new LanAuth()
-  const first=auth.authorize('token',auth.bootstrap,'192.168.9.100','android')
-  expect(first.name).toMatch(NAME)
-  const cookie=auth.cookieFor(first.id).split(';')[0]
-  const req={headers:{cookie},socket:{remoteAddress:'192.168.9.100'}} as unknown as IncomingMessage
-  expect(auth.identify(req)?.name).toBe(first.name)
-  const second=auth.authorize('token',auth.bootstrap,'192.168.9.101','iphone')
-  expect(second.name).toMatch(NAME)
-  expect(second.name).not.toBe(first.name)
+  const first=auth.authorize(auth.pin,'192.168.9.100','android')
+  expect(first.device.name).toMatch(NAME)
+  const req={headers:{'x-tooldock-device':first.token},socket:{remoteAddress:'192.168.9.100'}} as unknown as IncomingMessage
+  const resolved=auth.resolveDevice(req,'192.168.9.100')
+  expect(resolved.status).toBe('ok')
+  if(resolved.status==='ok')expect(resolved.device.name).toBe(first.device.name)
+  const reused=auth.authorize(auth.pin,'192.168.9.100','android',first.token)
+  expect(reused.device.name).toBe(first.device.name)
+  const second=auth.authorize(auth.pin,'192.168.9.101','iphone')
+  expect(second.device.name).toMatch(NAME)
+  expect(second.device.name).not.toBe(first.device.name)
  })
 })

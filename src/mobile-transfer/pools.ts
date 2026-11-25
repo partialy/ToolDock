@@ -5,7 +5,7 @@ type Json=(url:string,options?:RequestInit)=>Promise<any>
 type PoolItem={id:string;name:string;kind:'file'|'directory';size:number;parentId:string|null;deviceName:string;createdAt:number}
 type PoolPage={items:PoolItem[];nextCursor:string|null;total:number;usedBytes:number;itemCount:number}
 type Message={id:string;deviceName:string;charCount:number;bytes:number;createdAt:number;kind:'text'|'file';preview:string;text?:string}
-type PoolsNav={record:()=>void;back:()=>void;backSteps:(steps:number)=>void}
+type PoolsNav={record:()=>void;back:()=>void;backSteps:(steps:number)=>void;withPin:(url:string)=>string;authHeaders:()=>Record<string,string>}
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T
 const human=(n:number)=>n>=1024**3?(n/1024**3).toFixed(2)+' GiB':n>=1024**2?(n/1024**2).toFixed(1)+' MiB':n>=1024?(n/1024).toFixed(1)+' KiB':n+' B'
 const element=(tag:string,className='',text='')=>{const e=document.createElement(tag);e.className=className;e.textContent=text;return e}
@@ -75,14 +75,14 @@ export function initPools(json:Json,post:(url:string,data:unknown)=>Promise<any>
   else open.onclick=()=>{
    const ext=item.name.slice(item.name.lastIndexOf('.')).toLowerCase()
    const previewable=['.png','.jpg','.jpeg','.gif','.webp','.txt','.md','.json','.jsonl','.log','.csv','.xml','.yaml','.yml','.ini','.conf','.srt','.vtt','.lrc'].includes(ext)&&item.size<=8*1024**2
-   if(previewable)window.open('/api/pool/preview/'+item.id,'_blank','noopener,noreferrer')
-   else window.location.assign('/api/pool/files/'+item.id)
+   if(previewable)window.open(nav.withPin('/api/pool/preview/'+item.id),'_blank','noopener,noreferrer')
+   else window.location.assign(nav.withPin('/api/pool/files/'+item.id))
   }
   const down=document.createElement('button')
   down.type='button';down.className='download-button'
   down.setAttribute('aria-label','下载 '+item.name);down.title='下载 '+item.name
   down.append(icon('download'))
-  down.onclick=()=>{if(item.kind==='directory')void downloadArchive([item.id]);else window.location.assign('/api/pool/files/'+item.id)}
+  down.onclick=()=>{if(item.kind==='directory')void downloadArchive([item.id]);else window.location.assign(nav.withPin('/api/pool/files/'+item.id))}
   row.append(checkbox,open,down)
   return row
  }
@@ -100,7 +100,7 @@ export function initPools(json:Json,post:(url:string,data:unknown)=>Promise<any>
   else page.items.forEach(item=>poolRoot.append(fileRow(item)))
  }
  async function downloadArchive(ids:string[]){
-  try{const result=await post('/api/pool/archive',{ids});location.assign(result.url)}
+  try{const result=await post('/api/pool/archive',{ids});location.assign(nav.withPin(result.url))}
   catch(e){onError(String(e))}
  }
  async function refreshMessages(){
@@ -110,7 +110,7 @@ export function initPools(json:Json,post:(url:string,data:unknown)=>Promise<any>
  }
  async function copyText(id:string){
   try{
-   const response=await fetch('/api/messages/'+id+'/text',{credentials:'same-origin'})
+   const response=await fetch('/api/messages/'+id+'/text',{credentials:'same-origin',headers:nav.authHeaders()})
    if(!response.ok)throw Error('获取消息全文失败')
    const full=await response.text()
    if(navigator.clipboard?.writeText&&window.isSecureContext)await navigator.clipboard.writeText(full)
@@ -137,7 +137,7 @@ export function initPools(json:Json,post:(url:string,data:unknown)=>Promise<any>
    const tools=element('div','message-tools')
    const view=button('打开查看');view.onclick=()=>void openViewer(item).catch(e=>onError(String(e)))
    const download=element('a','mini-button','下载 TXT') as HTMLAnchorElement
-   download.href='/api/messages/'+item.id+'/download';download.download='message.txt'
+   download.href=nav.withPin('/api/messages/'+item.id+'/download');download.download='message.txt'
    tools.append(view,download);card.append(tools)
   }else{const body=element('p','message-text');linkify(body,item.text||'');card.append(body)}
   return card
@@ -153,7 +153,7 @@ export function initPools(json:Json,post:(url:string,data:unknown)=>Promise<any>
   if(!value.trim())return
   const send=$<HTMLButtonElement>('message-send');send.disabled=true
   try{
-   const res=await fetch('/api/messages',{method:'POST',credentials:'same-origin',headers:{'X-ToolDock-Request':'1','Content-Type':'text/plain; charset=utf-8'},body:value})
+   const res=await fetch('/api/messages',{method:'POST',credentials:'same-origin',headers:{'X-ToolDock-Request':'1','Content-Type':'text/plain; charset=utf-8',...nav.authHeaders()},body:value})
    const data=await res.json()
    if(!res.ok)throw Error(data.error||'消息发送失败')
    input.value='';await refreshMessages();messageRoot.scrollTop=messageRoot.scrollHeight;onError('')
@@ -173,7 +173,7 @@ export function initPools(json:Json,post:(url:string,data:unknown)=>Promise<any>
   currentText=item.id;viewerStack=[];showViewer(true)
   if(record)nav.record()
   $('viewer-info').textContent=item.charCount.toLocaleString()+' 字符 · '+human(item.bytes)
-  $<HTMLAnchorElement>('viewer-download').href='/api/messages/'+item.id+'/download'
+  $<HTMLAnchorElement>('viewer-download').href=nav.withPin('/api/messages/'+item.id+'/download')
   $('viewer-hits').replaceChildren();$<HTMLInputElement>('viewer-search').value=''
   try{await loadViewer(0)}catch(e){onError(String(e))}
  }
@@ -215,7 +215,7 @@ export function initPools(json:Json,post:(url:string,data:unknown)=>Promise<any>
  $('pool-sort').addEventListener('change',()=>void refreshPool().catch(e=>onError(String(e))))
  $('pool-select-all').onclick=()=>{const all=page.items.every(x=>selected.has(x.id));page.items.forEach(item=>all?selected.delete(item.id):selected.add(item.id));renderPool()}
  $('pool-more').onclick=()=>void refreshPool(true).catch(e=>onError(String(e)))
- $('pool-download-selected').onclick=()=>{const ids=[...selected];if(ids.length===1){const item=page.items.find(x=>x.id===ids[0]);if(item?.kind==='file'){location.assign('/api/pool/files/'+item.id);return}}void downloadArchive(ids)}
+ $('pool-download-selected').onclick=()=>{const ids=[...selected];if(ids.length===1){const item=page.items.find(x=>x.id===ids[0]);if(item?.kind==='file'){location.assign(nav.withPin('/api/pool/files/'+item.id));return}}void downloadArchive(ids)}
  $('pool-download-all').onclick=()=>void downloadArchive([])
  $('messages-refresh').onclick=()=>void refreshMessages().catch(e=>onError(String(e)))
  $('message-send').onclick=()=>void sendMessage()

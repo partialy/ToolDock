@@ -3,13 +3,14 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import {randomUUID,createHash} from 'node:crypto'
-import {Worker} from 'node:worker_threads'
+import type {Worker} from 'node:worker_threads'
 import {createWriteStream} from 'node:fs'
 import {pipeline} from 'node:stream/promises'
 import * as yazl from 'yazl'
 import {getDb} from '../../database/store'
 import {decodeInput} from './encoding'
 import {assertUnchanged,extension,MAX_COUNT,MAX_TOTAL,publishExclusive,scanFiles,validName,type FoundFile} from './files'
+import {runConversionWorker} from './worker-runner'
 import {conversionPreferencesSchema,conversionPreferencesPatchSchema,type ConversionPreferences,type ConversionTask,type ConversionSnapshot,type ConversionEncoding,type ConversionAddResult,type ConversionSaveReport,type ConversionPreview} from '../../../../src/shared/textConversionModels'
 import {outputSuffix} from '../../../../src/lib/text-conversion/conversion-core'
 
@@ -145,25 +146,16 @@ export class TextConversionService {
   const settings=t.queuedPrefs||{...this.preferences}
   try{
    await assertUnchanged(this.recordSource(t))
-   const result=await new Promise<{encoding:string;bytes:number}>((resolve,reject)=>{
-    let settled=false
-    const finish=(error?:Error,value?:{encoding:string;bytes:number})=>{
-     if(settled)return;settled=true
-     if(error)reject(error);else resolve(value!)
-    }
-    const worker=new Worker(path.join(__dirname,'text-conversion-worker.js'),{
-     workerData:{inputPath:t.inputPath,outputPath:output,settings,encoding:t.encodingOverride||settings.inputEncoding},
-     resourceLimits:{maxOldGenerationSizeMb:512}
-    })
-    t.worker=worker
-    worker.on('message',(message:{percent?:number;done?:boolean;error?:string;encoding?:string;bytes?:number})=>{
+   const result=await runConversionWorker({
+    inputPath:t.inputPath,
+    outputPath:output,
+    settings,
+    encoding:t.encodingOverride||settings.inputEncoding,
+    onWorker:worker=>{t.worker=worker},
+    onProgress:percent=>{
      if(!this.tasks.has(t.id))return
-     if(message.error)finish(new Error(message.error))
-     else if(message.done)finish(undefined,{encoding:message.encoding||'utf8',bytes:message.bytes||0})
-     else if(message.percent!==undefined){t.percent=message.percent;t.updatedAt=Date.now();this.changed()}
-    })
-    worker.on('error',error=>finish(error))
-    worker.on('exit',code=>finish(new Error(code===0?'工作线程提前结束':'工作线程终止：'+code)))
+     t.percent=percent;t.updatedAt=Date.now();this.changed()
+    }
    })
    if(this.closing||!this.tasks.has(t.id)||t.state==='cancelled')throw Error('转换已取消')
    await assertUnchanged(this.recordSource(t))

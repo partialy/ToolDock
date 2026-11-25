@@ -1,6 +1,7 @@
 import {describe,it,expect,vi} from 'vitest'
+import {unzipSync} from 'fflate'
 import {createHash,randomBytes} from 'node:crypto'
-import {existsSync,mkdtempSync,rmSync} from 'node:fs'
+import {existsSync,mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -57,10 +58,10 @@ describe('文件快传并发分片上传集成',()=>{
    const snapshot=await service.start(nic.address)
    const base=snapshot.url!
    const headers={'Origin':base,'X-ToolDock-Request':'1'}
-   const auth=await fetch(base+'/api/auth',{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({kind:'pin',value:snapshot.pin})})
+   const auth=await fetch(base+'/api/auth',{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({pin:snapshot.pin})})
    expect(auth.ok).toBe(true)
-   const cookie=auth.headers.get('set-cookie')!.split(';')[0]
-   const authed={...headers,Cookie:cookie}
+   const authData=await auth.json() as {token:string}
+   const authed={...headers,'X-ToolDock-Pin':snapshot.pin!,'X-ToolDock-Device':authData.token}
 
    const payload=randomBytes(9*1024*1024+123)
    const createRes=await fetch(base+'/api/uploads',{method:'POST',headers:{...authed,'Content-Type':'application/json'},body:JSON.stringify({name:'concurrent.bin',size:payload.length,relativeFolder:'',group:''})})
@@ -76,7 +77,7 @@ describe('文件快传并发分片上传集成',()=>{
    }))
    expect(putResults.every(x=>x.status===200)).toBe(true)
 
-   const stateRes=await fetch(base+'/api/uploads/'+created.id,{headers:{Cookie:cookie}})
+   const stateRes=await fetch(base+'/api/uploads/'+created.id,{headers:{'X-ToolDock-Pin':snapshot.pin!}})
    const stateBody=await stateRes.json() as {offset:number;received:number;ranges:[number,number][]}
    expect(stateBody.offset).toBe(payload.length)
    expect(stateBody.received).toBe(payload.length)
@@ -86,7 +87,7 @@ describe('文件快传并发分片上传集成',()=>{
    expect(completeRes.status).toBe(200)
    const completed=await completeRes.json() as {poolId:string}
 
-   const downRes=await fetch(base+'/api/pool/files/'+completed.poolId,{headers:{Cookie:cookie}})
+   const downRes=await fetch(base+'/api/pool/files/'+completed.poolId+'?pin='+encodeURIComponent(snapshot.pin!))
    expect(downRes.status).toBe(200)
    const downloaded=Buffer.from(await downRes.arrayBuffer())
    expect(createHash('sha256').update(downloaded).digest('hex')).toBe(createHash('sha256').update(payload).digest('hex'))
@@ -107,9 +108,9 @@ describe('文件快传并发分片上传集成',()=>{
    const snapshot=await service.start(nic.address)
    const base=snapshot.url!
    const headers={'Origin':base,'X-ToolDock-Request':'1'}
-   const auth=await fetch(base+'/api/auth',{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({kind:'pin',value:snapshot.pin})})
-   const cookie=auth.headers.get('set-cookie')!.split(';')[0]
-   const authed={...headers,Cookie:cookie}
+   const auth=await fetch(base+'/api/auth',{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({pin:snapshot.pin})})
+   const authData=await auth.json() as {token:string}
+   const authed={...headers,'X-ToolDock-Pin':snapshot.pin!,'X-ToolDock-Device':authData.token}
 
    const payload=randomBytes(1024*1024)
    const createRes=await fetch(base+'/api/uploads',{method:'POST',headers:{...authed,'Content-Type':'application/json'},body:JSON.stringify({name:'resume.bin',size:payload.length,relativeFolder:'',group:''})})
@@ -129,7 +130,7 @@ describe('文件快传并发分片上传集成',()=>{
    const rBadHash=await fetch(base+'/api/uploads/'+created.id+'?offset=0',{method:'PUT',headers:{...authed,'X-Chunk-SHA256':'0'.repeat(64),'Content-Type':'application/octet-stream'},body:firstHalf})
    expect(rBadHash.ok).toBe(false)
 
-   const midState=await (await fetch(base+'/api/uploads/'+created.id,{headers:{Cookie:cookie}})).json() as {offset:number;received:number;ranges:[number,number][]}
+   const midState=await (await fetch(base+'/api/uploads/'+created.id,{headers:{'X-ToolDock-Pin':snapshot.pin!}})).json() as {offset:number;received:number;ranges:[number,number][]}
    expect(midState.offset).toBe(0)
    expect(midState.received).toBe(512*1024)
    expect(midState.ranges).toEqual([[512*1024,payload.length]])
@@ -140,6 +141,60 @@ describe('文件快传并发分片上传集成',()=>{
    const tempSession=service.getSnapshot()
    expect(tempSession.pool.fileCount).toBe(0)
    expect(existsSync(path.join(temp,created.id+'.part'))).toBe(false)
+  }finally{
+   await service.stop()
+   rmSync(temp,{recursive:true,force:true})
+  }
+ })
+
+ it('批量与文件夹打包下载支持 HEAD 探测与系统下载器无 Cookie 二次 GET 拉取',async()=>{
+  const temp=mkdtempSync(path.join(os.tmpdir(),'tooldock-zip-ticket-'))
+  const shareFolder=path.join(temp,'shared-folder')
+  mkdirSync(shareFolder)
+  writeFileSync(path.join(shareFolder,'hello.txt'),'zip-content')
+  state.root=temp
+  const service=new FileTransferService()
+  service.setPrefs({...service.getPrefs(),tempDirectory:temp})
+  const nic=service.getInterfaces()[0]
+  if(!nic){rmSync(temp,{recursive:true,force:true});return}
+  try{
+   const snapshot=await service.start(nic.address)
+   await service.addSources([shareFolder])
+   await service.addPoolSources([shareFolder])
+   const shareId=service.getSnapshot().shares[0].id
+   const base=snapshot.url!
+   const headers={'Origin':base,'X-ToolDock-Request':'1','X-ToolDock-Pin':snapshot.pin!}
+
+   // 1. 分享文件夹打包：HEAD 探测 + 连续两次无设备 token GET 均应成功
+   const shareTicketRes=await fetch(base+'/api/archive-selections',{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({ids:[shareId]})})
+   expect(shareTicketRes.status).toBe(201)
+   const shareTicket=await shareTicketRes.json() as {url:string}
+   const shareZipUrl=base+shareTicket.url+'?pin='+encodeURIComponent(snapshot.pin!)
+   expect((await fetch(shareZipUrl,{method:'HEAD'})).status).toBe(200)
+   const firstGet=await fetch(shareZipUrl)
+   expect(firstGet.status).toBe(200)
+   const shareBuf=new Uint8Array(await firstGet.arrayBuffer())
+   expect(Number(firstGet.headers.get('content-length'))).toBe(shareBuf.byteLength)
+   expect(new TextDecoder().decode(unzipSync(shareBuf)['shared-folder/hello.txt'])).toBe('zip-content')
+   const secondGet=await fetch(shareZipUrl)
+   expect(secondGet.status).toBe(200)
+   expect((await secondGet.arrayBuffer()).byteLength).toBe(shareBuf.byteLength)
+
+   // 2. 文件池打包：HEAD 探测 + 连续两次无设备 token GET 均应成功且带精确 Content-Length
+   const poolTicketRes=await fetch(base+'/api/pool/archive',{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({ids:[]})})
+   expect(poolTicketRes.status).toBe(201)
+   const poolTicket=await poolTicketRes.json() as {url:string}
+   const poolZipUrl=base+poolTicket.url+'?pin='+encodeURIComponent(snapshot.pin!)
+   expect((await fetch(poolZipUrl,{method:'HEAD'})).status).toBe(200)
+   const poolGet=await fetch(poolZipUrl)
+   expect(poolGet.status).toBe(200)
+   const poolBuf=new Uint8Array(await poolGet.arrayBuffer())
+   expect(Number(poolGet.headers.get('content-length'))).toBe(poolBuf.byteLength)
+   expect(new TextDecoder().decode(unzipSync(poolBuf)['shared-folder/hello.txt'])).toBe('zip-content')
+   expect((await fetch(poolZipUrl)).status).toBe(200)
+
+   // 3. /api/zip 全量打包支持 HEAD
+   expect((await fetch(base+'/api/zip?pin='+encodeURIComponent(snapshot.pin!),{method:'HEAD'})).status).toBe(200)
   }finally{
    await service.stop()
    rmSync(temp,{recursive:true,force:true})

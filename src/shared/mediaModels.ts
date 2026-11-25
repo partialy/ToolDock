@@ -32,7 +32,7 @@ export interface MediaAddResult {added:number;skipped:{path:string;reason:string
 export interface MediaAPI {
  status():Promise<MediaSnapshot>;chooseFiles(kind:MediaKind):Promise<string[]>;chooseFolder():Promise<string|null>;addSources(paths:string[],kind:MediaKind):Promise<MediaAddResult>;
  start(ids:string[],preferences:MediaPreferences):Promise<void>;cancel(id:string):Promise<void>;retry(id:string):Promise<void>;clearFinished():Promise<void>;setAudioTrack(id:string,index:number):Promise<void>;
- chooseOutputDirectory():Promise<string|null>;openOutput(id:string):Promise<void>;preview(id:string):Promise<string>;exportSubtitle(id:string):Promise<string|null>;
+ chooseOutputDirectory():Promise<string|null>;openOutput(id:string):Promise<void>;preview(id:string):Promise<string>;simplifySubtitle(id:string):Promise<string>;exportSubtitle(id:string):Promise<string|null>;
  setPreferences(patch:Partial<MediaPreferences>):Promise<void>;chooseFfmpeg():Promise<string|null>;
  models:{download(id:string):Promise<void>;pause(id:string):Promise<void>;resume(id:string):Promise<void>;cancel(id:string):Promise<void>;import(reference:boolean):Promise<void>;remove(id:string):Promise<void>;chooseDirectory():Promise<string|null>;migrateDirectory(path:string,move:boolean):Promise<void>};
  engines:{installCuda():Promise<void>;removeCuda():Promise<void>};onChange(cb:()=>void):()=>void

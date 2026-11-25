@@ -1,4 +1,4 @@
-import {CheckCircle2,FileAudio,FolderOpen,Play,RefreshCw,Square,Subtitles,Trash2} from 'lucide-react'
+import {CheckCircle2,FileAudio,FolderOpen,Languages,Play,RefreshCw,Square,Subtitles,Trash2} from 'lucide-react'
 import {Button} from '@/components/ui/button'
 import {SelectField} from '@/components/ui/select-field'
 import type {MediaTask,MediaTaskState} from '@/shared/mediaModels'
@@ -6,7 +6,7 @@ import {MediaProgress} from './media-ui'
 
 const labels:Record<MediaTaskState,string>={ready:'待开始',queued:'排队中',running:'处理中',completed:'已完成',failed:'失败',cancelled:'已取消',interrupted:'意外中断'}
 const duration=(seconds:number)=>Math.floor(seconds/60)+':'+String(Math.floor(seconds%60)).padStart(2,'0')
-export function MediaQueue({tasks,highlightTaskId,checked,busy,onCheck,onStart,onCancel,onRetry,onTrack,onOpen,onPreview,onClear}:{tasks:MediaTask[];highlightTaskId?:string;checked:string[];busy:boolean;onCheck:(ids:string[])=>void;onStart:()=>void;onCancel:(id:string)=>void;onRetry:(id:string)=>void;onTrack:(id:string,index:number)=>void;onOpen:(id:string)=>void;onPreview:(id:string)=>void;onClear:()=>void}){
+export function MediaQueue({tasks,highlightTaskId,checked,busy,onCheck,onStart,onCancel,onRetry,onTrack,onOpen,onPreview,onSimplify,onClear}:{tasks:MediaTask[];highlightTaskId?:string;checked:string[];busy:boolean;onCheck:(ids:string[])=>void;onStart:()=>void;onCancel:(id:string)=>void;onRetry:(id:string)=>void;onTrack:(id:string,index:number)=>void;onOpen:(id:string)=>void;onPreview:(id:string)=>void;onSimplify:(id:string)=>void;onClear:()=>void}){
  const ready=tasks.filter(t=>t.state==='ready'),allChecked=ready.length>0&&ready.every(t=>checked.includes(t.id))
  return <section className="min-w-0 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)]">
   <div className="flex flex-wrap items-center gap-3 border-b border-[var(--border)] px-5 py-4"><h2 className="mr-auto text-sm font-semibold">文件队列 <span className="ml-1 text-xs font-normal muted">{tasks.length}</span></h2><Button size="sm" disabled={busy||!tasks.some(t=>['completed','failed','cancelled','interrupted'].includes(t.state))} onClick={onClear}><Trash2 size={14}/>清除结束记录</Button><Button size="sm" variant="primary" disabled={busy||!checked.some(id=>ready.some(t=>t.id===id))} onClick={onStart}><Play size={14}/>开始选中任务</Button></div>
@@ -21,7 +21,7 @@ export function MediaQueue({tasks,highlightTaskId,checked,busy,onCheck,onStart,o
      {task.fallbackReason&&<p className="mt-2 break-words text-xs text-amber-500">{task.fallbackReason}</p>}
      {task.error&&<p role="alert" className="mt-2 break-words text-xs text-red-400">{task.error}</p>}
      {task.outputPath&&task.state==='completed'&&<p title={task.outputPath} className="mt-2 truncate text-xs muted">输出：{task.outputPath}</p>}
-     <div className="mt-2 flex flex-wrap gap-2">{['queued','running','ready'].includes(task.state)&&<Button size="sm" variant="ghost" disabled={busy} onClick={()=>onCancel(task.id)}><Square size={13}/>取消</Button>}{['failed','cancelled','interrupted'].includes(task.state)&&<Button size="sm" disabled={busy} onClick={()=>onRetry(task.id)}><RefreshCw size={13}/>重试</Button>}{task.state==='completed'&&<><Button size="sm" variant="ghost" disabled={busy} onClick={()=>onOpen(task.id)}><FolderOpen size={14}/>打开目录</Button>{task.kind==='subtitle'&&<Button size="sm" disabled={busy} onClick={()=>onPreview(task.id)}><Subtitles size={14}/>预览 / 导出 SRT</Button>}</>}</div>
+     <div className="mt-2 flex flex-wrap gap-2">{['queued','running','ready'].includes(task.state)&&<Button size="sm" variant="ghost" disabled={busy} onClick={()=>onCancel(task.id)}><Square size={13}/>取消</Button>}{['failed','cancelled','interrupted'].includes(task.state)&&<Button size="sm" disabled={busy} onClick={()=>onRetry(task.id)}><RefreshCw size={13}/>重试</Button>}{task.state==='completed'&&<><Button size="sm" variant="ghost" disabled={busy} onClick={()=>onOpen(task.id)}><FolderOpen size={14}/>打开目录</Button>{task.kind==='subtitle'&&<><Button size="sm" disabled={busy} onClick={()=>onPreview(task.id)}><Subtitles size={14}/>预览 / 导出 SRT</Button><Button size="sm" disabled={busy} onClick={()=>onSimplify(task.id)}><Languages size={14}/>转简体</Button></>}</>}</div>
     </div>
    </article>)}</div>
   </>}

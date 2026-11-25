@@ -34,7 +34,7 @@ export class FileTransferService extends EventEmitter {
  private port:number|null=null
  private shares=new Map<string,InternalShare>()
  private tree=new SharedTree(()=>new Map([...this.shares].map(([id,s])=>[id,{id,file:s.file,kind:s.kind,name:s.name}])))
- private archiveTickets=new Map<string,{ids:string[];owner:string;expires:number}>()
+ private archiveTickets=new Map<string,{ids:string[];expires:number}>()
  private downloadRoots=new Map<string,Set<string>>()
  private uploads=new Map<string,Upload>()
  private tasks=new Map<string,TransferTask>()
@@ -70,7 +70,7 @@ export class FileTransferService extends EventEmitter {
  getSnapshot():TransferSnapshot{
   const url=this.server&&this.address&&this.port?'http://'+this.address+':'+this.port:null
   return {running:!!this.server,port:this.port,address:this.address,url,pin:this.auth?.pin||null,
-   qrUrl:url&&this.auth?url+'/#token='+encodeURIComponent(this.auth.bootstrap):null,
+   qrUrl:url&&this.auth?url+'/#pin='+encodeURIComponent(this.auth.pin):null,
    interfaces:interfaces(),shares:[...this.shares.values()].map(({file,...safe})=>({...safe,path:file})),incoming:[...this.uploads.values()].map(({temp,owner,lastActive,fd,fdPromise,ranges,inflight,activeChunks,inflightBytes,activeRequests,...safe})=>safe),
    devices:this.auth?.list()||[],tasks:[...this.tasks.values()],prefs:this.getPrefs(),pool:{usedBytes:this.pool.usedBytes,reservedBytes:this.activeUploadBytes()+this.pendingReservationBytes,limitBytes:this.prefs.maxTempBytes,messageBytes:this.messages.usedBytes,fileCount:this.pool.itemCount,messageCount:this.messages.list().total}}
  }
@@ -98,6 +98,12 @@ export class FileTransferService extends EventEmitter {
   return u.fdPromise
  }
  private abortUploadRequests(u:Upload){for(const req of u.activeRequests)req.destroy()}
+ private pruneExpiredTickets(){const now=Date.now();for(const [k,v] of this.archiveTickets)if(v.expires<now)this.archiveTickets.delete(k)}
+ private finishArchive(archive:yazl.ZipFile):number{
+  let total=-1
+  ;(archive.end as (options:yazl.EndOptions,cb:(size:number)=>void)=>void)({forceZip64Format:true,comment:''},size=>{total=size})
+  return total
+ }
  private async cleanupRejectedUpload(u:Upload){
   if(u.activeChunks>0)return
   await this.closeUploadHandle(u)
@@ -346,13 +352,17 @@ export class FileTransferService extends EventEmitter {
    const b=await receiveJson(req)
    if(!this.auth)return sendJson(res,503,{error:'服务未运行'})
    try{
-    const device=this.auth.authorize(b.kind==='pin'?'pin':'token',String(b.value||''),ip,String(req.headers['user-agent']||'未知浏览器'))
-    res.setHeader('Set-Cookie',this.auth.cookieFor(device.id))
-    return sendJson(res,200,{ok:true,device})
+    const pinValue=String(b.pin??b.value??'')
+    const existingToken=typeof b.token==='string'?b.token:undefined
+    const result=this.auth.authorize(pinValue,ip,String(req.headers['user-agent']||'未知浏览器'),existingToken)
+    this.emitChange()
+    return sendJson(res,200,{ok:true,device:result.device,token:result.token})
    }catch(e){return sendJson(res,403,{error:String(e)})}
   }
-  const device=this.auth?.identify(req)
-  if(!device)return sendJson(res,401,{error:'请先输入访问码或扫描二维码授权'})
+  if(!this.auth||!this.auth.verifyPin(req,url))return sendJson(res,401,{error:'请输入正确的访问码'})
+  const resolved=this.auth.resolveDevice(req,ip)
+  if(resolved.status==='revoked')return sendJson(res,401,{error:'当前设备访问已断开，请重新输入访问码'})
+  const device:DeviceInfo=resolved.status==='ok'?resolved.device:{id:'ip:'+ip,ip,agent:String(req.headers['user-agent']||'').slice(0,120),connectedAt:Date.now(),lastSeen:Date.now(),name:ip}
   if(method==='GET'&&pathname==='/api/status')return sendJson(res,200,{shares:this.prefs.allowDownload?this.getSnapshot().shares.map(({path,...safe})=>safe):[],uploadAllowed:this.prefs.allowPoolUpload,downloadAllowed:this.prefs.allowDownload,poolDownloadAllowed:this.prefs.allowPoolDownload,maxUploads:this.prefs.maxUploads,maxChunkBytes:MAX_CHUNK_BYTES,device,pool:this.getSnapshot().pool})
   if(method==='GET'&&pathname==='/api/events'){
    res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache, no-transform','Connection':'keep-alive'})
@@ -392,15 +402,17 @@ export class FileTransferService extends EventEmitter {
    const b=await receiveJson(req,256*1024)
    const ids=b.ids
    if(!Array.isArray(ids)||ids.length>20000||ids.some(x=>typeof x!=='string'||!/^[0-9a-f-]{36}$/i.test(x)))return sendJson(res,400,{error:'文件列表无效'})
+   this.pruneExpiredTickets()
    const ticket=randomUUID()
-   this.archiveTickets.set(ticket,{ids,owner:device.id,expires:Date.now()+300000})
+   this.archiveTickets.set(ticket,{ids,expires:Date.now()+300000})
    return sendJson(res,201,{url:'/api/pool/archive/'+ticket})
   }
-  if(method==='GET'&&pathname.startsWith('/api/pool/archive/')){
+  if((method==='GET'||method==='HEAD')&&pathname.startsWith('/api/pool/archive/')){
    if(!this.prefs.allowPoolDownload)return sendJson(res,403,{error:'文件池下载未开启'})
+   this.pruneExpiredTickets()
    const key=pathname.split('/').at(-1)!,ticket=this.archiveTickets.get(key)
-   if(!ticket||ticket.owner!==device.id||ticket.expires<Date.now())return sendJson(res,404,{error:'ZIP 下载凭据无效'})
-   this.archiveTickets.delete(key);return this.downloadPoolZip(res,device,ticket.ids)
+   if(!ticket||ticket.expires<Date.now())return sendJson(res,404,{error:'ZIP 下载凭据无效'})
+   return this.downloadPoolZip(res,device,ticket.ids,method==='HEAD')
   }
   if(method==='POST'&&pathname==='/api/pool/folders'){
    if(!this.prefs.allowPoolUpload)return sendJson(res,403,{error:'文件池上传未开启'})
@@ -440,29 +452,29 @@ export class FileTransferService extends EventEmitter {
    if(!Array.isArray(ids)||!ids.length||ids.length>10000||ids.some(id=>typeof id!=='string'||!/^[0-9a-f-]{36}$/i.test(id)))return sendJson(res,400,{error:'选中项无效'})
    // Preflight before issuing a ticket; errors can still occur if files change later.
    await this.tree.expandZip(ids)
+   this.pruneExpiredTickets()
    const ticket=randomUUID()
-   this.archiveTickets.set(ticket,{ids,owner:device.id,expires:Date.now()+300000})
+   this.archiveTickets.set(ticket,{ids,expires:Date.now()+300000})
    return sendJson(res,201,{url:'/api/archives/'+ticket})
   }
-  if(method==='GET'&&pathname.startsWith('/api/archives/')){
+  if((method==='GET'||method==='HEAD')&&pathname.startsWith('/api/archives/')){
    if(!this.prefs.allowDownload)return sendJson(res,403,{error:'未开启下载权限'})
+   this.pruneExpiredTickets()
    const ticket=pathname.slice('/api/archives/'.length),saved=this.archiveTickets.get(ticket)
-   if(!saved||saved.owner!==device.id||saved.expires<Date.now())return sendJson(res,404,{error:'压缩包下载链接无效或过期'})
-   this.archiveTickets.delete(ticket)
-   return this.downloadZip(res,device,saved.ids)
+   if(!saved||saved.expires<Date.now())return sendJson(res,404,{error:'压缩包下载链接无效或过期'})
+   return this.downloadZip(res,device,saved.ids,method==='HEAD')
   }
 
-  if(method==='GET'&&pathname==='/api/uploads')return sendJson(res,200,{uploads:this.getSnapshot().incoming.filter(u=>this.uploads.get(u.id)?.owner===device.id)})
-  if(method==='POST'&&pathname==='/api/logout'){this.auth?.revoke(device.id);res.setHeader('Set-Cookie','tooldock_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');return sendJson(res,200,{ok:true})}
+  if(method==='GET'&&pathname==='/api/uploads')return sendJson(res,200,{uploads:this.getSnapshot().incoming})
   if((method==='GET'||method==='HEAD')&&pathname.startsWith('/api/files/')){
    if(!this.prefs.allowDownload)return sendJson(res,403,{error:'未开启下载权限'})
    const id=pathname.split('/')[3]
    const s=await this.readEntry(id)
    return this.download(req,res,s,device)
   }
-  if(method==='GET'&&pathname==='/api/zip'){
+  if((method==='GET'||method==='HEAD')&&pathname==='/api/zip'){
    if(!this.prefs.allowDownload)return sendJson(res,403,{error:'未开启下载权限'})
-   return this.downloadZip(res,device,url.searchParams.getAll('id'))
+   return this.downloadZip(res,device,url.searchParams.getAll('id'),method==='HEAD')
   }
   if(method==='POST'&&pathname==='/api/uploads'){
    if(!this.prefs.allowPoolUpload)return sendJson(res,403,{error:'文件池上传未开启'})
@@ -493,7 +505,7 @@ export class FileTransferService extends EventEmitter {
   const uploadMatch=/^\/api\/uploads\/([0-9a-f-]{36})(?:\/(complete))?$/.exec(pathname)
   if(uploadMatch){
    const u=this.uploads.get(uploadMatch[1])
-   if(!u||u.owner!==device.id)return sendJson(res,404,{error:'上传任务不存在'})
+   if(!u)return sendJson(res,404,{error:'上传任务不存在'})
    u.lastActive=Date.now()
    if(method==='GET'&&!uploadMatch[2])return sendJson(res,200,{id:u.id,offset:contiguousOffset(u.ranges),received:u.received,ranges:u.ranges,total:u.size,status:u.status})
    if(method==='DELETE'&&!uploadMatch[2]){
@@ -623,27 +635,32 @@ export class FileTransferService extends EventEmitter {
   }catch{const t=this.tasks.get(id);if(t)t.status='failed';res.destroy()}
   finally{this.activeDownloads--;this.activeResponses.delete(id);this.downloadOwners.delete(id);this.downloadShares.delete(id);this.poolDownloadIds.delete(id);this.emitChange()}
  }
- private async downloadZip(res:ServerResponse,device:DeviceInfo,selectedIds:string[]=[]){
-  if(this.activeDownloads>=this.prefs.maxDownloads)return sendJson(res,429,{error:'下载队列繁忙'})
+ private async downloadZip(res:ServerResponse,device:DeviceInfo,selectedIds:string[]=[],headOnly=false){
+  if(!headOnly&&this.activeDownloads>=this.prefs.maxDownloads)return sendJson(res,429,{error:'下载队列繁忙'})
   if(selectedIds.length>10000||selectedIds.some(id=>!/^[0-9a-f-]{36}$/i.test(id)))return sendJson(res,400,{error:'所选文件列表无效'})
   const ids=selectedIds.length?[...new Set(selectedIds)]:[...this.shares.keys()]
   if(!ids.length)return sendJson(res,400,{error:'当前没有共享文件'})
   for(const id of ids)if(this.shares.get(id)?.kind==='file')await this.readShare(id)
   const plan=await this.tree.expandZip(ids)
   if(!plan.entries.length)return sendJson(res,400,{error:'没有可下载的项目'})
+  if(headOnly){
+   res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':"attachment; filename=tooldock-shared.zip"})
+   res.end();return
+  }
   const archive=new yazl.ZipFile()
   archive.on('error',()=>{})
   archive.outputStream.on('error',()=>{})
   const taskId=randomUUID()
   const task:TransferTask={id:taskId,name:'分享文件.zip',direction:'download',total:plan.total,completed:0,status:'running',ip:device.ip}
   const activeStreams=new Set<ReturnType<typeof createReadStream>>()
+  const realRoots=new Map<string,string>()
   const abort=()=>{for(const stream of activeStreams)stream.destroy();(archive.outputStream as import('node:stream').Readable).destroy()}
   for(const entry of plan.entries){
    const rel=entry.name.split(path.sep).join('/')
    const safeParts=rel.split('/').filter(Boolean).map(x=>safeFilename(x))
    const zipName=safeParts.join('/')+(entry.directory?'/':'')
    if(entry.directory){archive.addEmptyDirectory(zipName,{mtime:entry.mtime});continue}
-   archive.addReadStreamLazy(zipName,{size:entry.size,mtime:entry.mtime,forceZip64Format:entry.size>=4*GIB},callback=>{
+   archive.addReadStreamLazy(zipName,{compress:false,size:entry.size,mtime:entry.mtime,forceZip64Format:entry.size>=4*GIB},callback=>{
     void (async()=>{
      try{
       // Validate at actual stream open, not just when the archive was planned.
@@ -651,7 +668,9 @@ export class FileTransferService extends EventEmitter {
       if(!stat.isFile()||stat.isSymbolicLink()||stat.size!==entry.size||Math.abs(stat.mtimeMs-entry.mtime.getTime())>1)throw Error('源文件在打包期间发生变化')
       const root=this.shares.get(entry.rootId)
       if(!root)throw Error('共享已撤销')
-      const realRoot=await fs.realpath(root.file),real=await fs.realpath(entry.path)
+      let realRoot=realRoots.get(root.id)
+      if(!realRoot){realRoot=await fs.realpath(root.file);realRoots.set(root.id,realRoot)}
+      const real=await fs.realpath(entry.path)
       const diff=path.relative(realRoot,real)
       if(diff==='..'||diff.startsWith('..'+path.sep)||path.isAbsolute(diff))throw Error('文件路径越界')
       const stream=createReadStream(entry.path,{highWaterMark:STREAM_HIGH_WATER_MARK})
@@ -663,12 +682,12 @@ export class FileTransferService extends EventEmitter {
     })()
    })
   }
-  archive.end({forceZip64Format:true,comment:''})
+  const contentLength=this.finishArchive(archive)
   this.activeDownloads++
   this.tasks.set(taskId,task);this.activeResponses.set(taskId,res);this.downloadOwners.set(taskId,device.id);this.downloadRoots.set(taskId,plan.roots)
   res.once('close',abort)
   this.emitChange()
-  res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':"attachment; filename=tooldock-shared.zip"})
+  res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':"attachment; filename=tooldock-shared.zip",...(contentLength>0?{'Content-Length':contentLength}:{})})
   try{await pipeline(archive.outputStream,res);if(task.status==='running')task.status='completed'}
   catch{if(task.status==='running')task.status='failed';res.destroy()}
   finally{
@@ -677,13 +696,17 @@ export class FileTransferService extends EventEmitter {
   }
  }
 
- private async downloadPoolZip(res:ServerResponse,device:DeviceInfo,ids:string[]){
-  if(this.activeDownloads>=this.prefs.maxDownloads)return sendJson(res,429,{error:'下载队列繁忙'})
+ private async downloadPoolZip(res:ServerResponse,device:DeviceInfo,ids:string[],headOnly=false){
+  if(!headOnly&&this.activeDownloads>=this.prefs.maxDownloads)return sendJson(res,429,{error:'下载队列繁忙'})
   const selected=ids.length?ids:this.pool.rootIds()
   const entries=this.pool.entries(selected)
   const total=entries.reduce((n,x)=>n+(x.kind==='file'?x.size:0),0)
   if(total>200*GIB)return sendJson(res,413,{error:'单次 ZIP 下载上限为 200 GiB'})
   if(!entries.length)return sendJson(res,400,{error:'文件池为空'})
+  if(headOnly){
+   res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':'attachment; filename="tooldock-pool.zip"'})
+   res.end();return
+  }
   const zip=new yazl.ZipFile(),taskId=randomUUID()
   const task:TransferTask={id:taskId,name:'文件池.zip',direction:'download',total,completed:0,status:'running',ip:device.ip}
   for(const entry of entries){
@@ -691,17 +714,17 @@ export class FileTransferService extends EventEmitter {
    const name=parts.join('/')
    if(entry.kind==='directory'){zip.addEmptyDirectory(name+'/');continue}
    if(!entry.file)continue
-   zip.addReadStreamLazy(name,{size:entry.size,forceZip64Format:entry.size>=4*GIB},done=>{
+   zip.addReadStreamLazy(name,{compress:false,size:entry.size,forceZip64Format:entry.size>=4*GIB},done=>{
     const stream=createReadStream(entry.file!,{highWaterMark:STREAM_HIGH_WATER_MARK})
     stream.on('data',b=>{task.completed+=Buffer.byteLength(b)})
     stream.on('error',()=>{if(task.status==='running')task.status='failed';res.destroy()})
     done(null,stream)
    })
   }
-  zip.end({forceZip64Format:true,comment:''})
+  const contentLength=this.finishArchive(zip)
   this.activeDownloads++;this.tasks.set(taskId,task);this.activeResponses.set(taskId,res);this.downloadOwners.set(taskId,device.id);this.poolDownloadIds.set(taskId,'__zip__')
   this.emitChange()
-  res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':'attachment; filename="tooldock-pool.zip"'})
+  res.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':'attachment; filename="tooldock-pool.zip"',...(contentLength>0?{'Content-Length':contentLength}:{})})
   try{await pipeline(zip.outputStream,res);task.status='completed'}catch{task.status='failed';res.destroy()}
   finally{this.activeDownloads--;this.activeResponses.delete(taskId);this.downloadOwners.delete(taskId);this.poolDownloadIds.delete(taskId);this.emitChange()}
  }

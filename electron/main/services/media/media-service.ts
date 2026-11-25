@@ -9,12 +9,15 @@ import {ffmpegBinaries,engineStatus,validateFfmpeg} from './engines'
 import {loadMediaTasks,saveMediaTask} from './task-persistence'
 import {executeMediaTask} from './execution'
 import {ModelStorage} from './model-storage'
+import {simplifySubtitleFile} from './subtitle-simplify'
 
 export class MediaService {
  private tasks:MediaTask[]=[]
  private preferences:MediaPreferences={...defaultMediaPreferences}
  private controllers=new Map<string,AbortController>()
  private executions=new Set<Promise<void>>()
+ private simplifyControllers=new Set<AbortController>()
+ private simplifyTasks=new Set<Promise<void>>()
  private closing=false
  private exclusive=false
  private adding=false
@@ -41,7 +44,7 @@ export class MediaService {
   for(const entry of await fs.readdir(cache,{withFileTypes:true})){if(entry.isDirectory()&&/^[0-9a-f-]{36}$/.test(entry.name))await fs.rm(path.join(cache,entry.name),{recursive:true,force:true})}
  }
  changed(){if(this.eventTimer)return;this.eventTimer=setTimeout(()=>{this.eventTimer=undefined;const win=this.window();if(win&&!win.isDestroyed())win.webContents.send('media:changed')},200)}
- isBusy(){return this.closing||this.restartRequired||this.exclusive||this.adding||this.controllers.size>0||this.tasks.some(t=>t.state==='queued')}
+ isBusy(){return this.closing||this.restartRequired||this.exclusive||this.adding||this.controllers.size>0||this.simplifyTasks.size>0||this.tasks.some(t=>t.state==='queued')}
  assertIdle(){if(this.closing)throw Error('ToolDock 正在退出');if(this.isBusy())throw Error('请先停止媒体任务及目录操作')}
  async dataMutation<T>(fn:()=>T|Promise<T>):Promise<T>{this.assertIdle();if(this.models.isBusy())throw Error('请先暂停模型下载及引擎安装');this.exclusive=true;try{const result=await fn();if(result&&typeof result==='object'&&'restartRequired' in result&&result.restartRequired)this.restartRequired=true;return result}finally{this.exclusive=false}}
  private assertAvailable(){if(this.closing||this.exclusive||this.restartRequired)throw Error(this.restartRequired?'数据目录已变更，请重启 ToolDock 后继续':'媒体服务正在退出或执行数据目录操作')}
@@ -82,5 +85,17 @@ export class MediaService {
  async cancel(id:string){this.assertAvailable();const t=this.getTask(id);const controller=this.controllers.get(id);if(controller)controller.abort();else if(['ready','queued'].includes(t.state)){t.state='cancelled';t.finishedAt=Date.now();this.persist(t)}this.changed()}
  async clearFinished(){this.assertAvailable();const states=['completed','failed','cancelled','interrupted'];this.tasks=this.tasks.filter(t=>!states.includes(t.state));getDb().prepare("DELETE FROM media_tasks WHERE state IN ('completed','failed','cancelled','interrupted')").run();this.changed()}
  async preview(id:string){const t=this.getTask(id);if(t.kind!=='subtitle'||t.state!=='completed'||!t.outputPath)throw Error('字幕尚未完成');const stat=await fs.stat(t.outputPath);if(stat.size>16*1024*1024)throw Error('字幕预览超过16MiB');return fs.readFile(t.outputPath,'utf8')}
- async shutdown(){this.closing=true;this.importController?.abort();for(const task of this.tasks.filter(t=>t.state==='queued')){task.state='interrupted';task.finishedAt=Date.now();this.persist(task)}for(const controller of this.controllers.values())controller.abort();await Promise.allSettled([...this.executions,this.models.shutdown(),this.importFinished]);if(this.eventTimer)clearTimeout(this.eventTimer)}
+ async simplifySubtitle(id:string):Promise<string>{
+  this.assertAvailable()
+  const t=this.getTask(id)
+  if(t.kind!=='subtitle'||t.state!=='completed'||!t.outputPath)throw Error('字幕尚未完成')
+  const controller=new AbortController()
+  this.simplifyControllers.add(controller)
+  const job=simplifySubtitleFile(t.outputPath,[t.inputPath,t.outputPath],path.join(getDataRoot(),'media-cache'),controller.signal)
+  const tracked=job.then(()=>undefined,()=>undefined)
+  this.simplifyTasks.add(tracked)
+  try{return await job}
+  finally{this.simplifyControllers.delete(controller);this.simplifyTasks.delete(tracked)}
+ }
+ async shutdown(){this.closing=true;this.importController?.abort();for(const task of this.tasks.filter(t=>t.state==='queued')){task.state='interrupted';task.finishedAt=Date.now();this.persist(task)}for(const controller of this.controllers.values())controller.abort();for(const controller of this.simplifyControllers)controller.abort();await Promise.allSettled([...this.executions,...this.simplifyTasks,this.models.shutdown(),this.importFinished]);if(this.eventTimer)clearTimeout(this.eventTimer)}
 }

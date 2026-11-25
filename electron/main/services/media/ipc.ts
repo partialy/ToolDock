@@ -21,6 +21,7 @@ export function registerMediaIpc(register:(channel:string,fn:(payload:any)=>unkn
  register('media:chooseOutputDirectory',pickDirectory)
  register('media:openOutput',async input=>{const task=service.getTask(id.parse(input));if(task.state!=='completed'||!task.outputPath)throw Error('输出尚未完成');await fs.access(task.outputPath);shell.showItemInFolder(task.outputPath)})
  register('media:preview',input=>service.preview(id.parse(input)))
+ register('media:simplifySubtitle',input=>service.simplifySubtitle(id.parse(input)))
  register('media:exportSubtitle',async input=>{
   const taskId=id.parse(input),text=await service.preview(taskId),task=service.getTask(taskId)
   const result=await dialog.showSaveDialog(window(),{defaultPath:path.parse(task.name).name+'.srt',filters:[{name:'SRT字幕',extensions:['srt']}]})

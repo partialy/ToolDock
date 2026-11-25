@@ -1,4 +1,5 @@
 import {describe,it,expect} from 'vitest'
+import type {IncomingMessage} from 'node:http'
 import {isPrivateIpv4,sameSubnet,safeFilename} from '../electron/main/services/transfer/network'
 import {LanAuth} from '../electron/main/services/transfer/auth'
 describe('局域网服务网络与会话安全',()=>{
@@ -22,15 +23,19 @@ describe('局域网服务网络与会话安全',()=>{
   expect(safeFilename('CON.txt')).not.toBe('CON.txt')
   expect(safeFilename('file.txt \t')).toBe('file.txt')
  })
- it('6 位访问码与 QR token 每次会话随机、失败/撤销不可复用',()=>{
+ it('6 位访问码随机校验、支持请求头与 Query 鉴权，撤销设备令牌不可复用',()=>{
   const a=new LanAuth(),b=new LanAuth()
   expect(a.pin).toMatch(/^[0-9]{6}$/)
-  expect(a.bootstrap).not.toBe(b.bootstrap)
-  expect(()=>a.authorize('pin','1111111','192.168.9.100','chrome')).toThrow()
-  const device=a.authorize('token',a.bootstrap,'192.168.9.100','android')
+  expect(a.pin).not.toBe('0000000')
+  expect(()=>a.authorize('1111111','192.168.9.100','chrome')).toThrow()
+  const {device,token}=a.authorize(a.pin,'192.168.9.100','android')
   expect(a.list()).toHaveLength(1)
-  expect(a.cookieFor(device.id)).toContain('HttpOnly')
+  expect(b.verifyPin({headers:{'x-tooldock-pin':a.pin}} as unknown as IncomingMessage,new URL('http://192.168.9.1/api/status'))).toBe(a.pin===b.pin)
+  expect(a.verifyPin({headers:{}} as unknown as IncomingMessage,new URL('http://192.168.9.1/api/zip?pin='+a.pin))).toBe(true)
+  expect(a.resolveDevice({headers:{}} as unknown as IncomingMessage,'192.168.9.100').status).toBe('anonymous')
+  expect(a.resolveDevice({headers:{'x-tooldock-device':token}} as unknown as IncomingMessage,'192.168.9.100').status).toBe('ok')
   a.revoke(device.id)
   expect(a.list()).toHaveLength(0)
+  expect(a.resolveDevice({headers:{'x-tooldock-device':token}} as unknown as IncomingMessage,'192.168.9.100').status).toBe('revoked')
  })
 })

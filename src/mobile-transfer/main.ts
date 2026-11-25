@@ -26,9 +26,36 @@ const knownShares=new Map<string,Share>()
 const err=(message:string)=>{if(message)toast.error(message)}
 const label=(status:string)=>({uploading:'上传中',paused:'已暂停',pending:'等待发布',accepted:'已进入文件池',rejected:'已取消',failed:'失败',cancelled:'已取消'} as Record<string,string>)[status]||status
 
+const PIN_STORAGE_KEY='tooldock-transfer-pin-v1'
+const DEVICE_STORAGE_KEY='tooldock-transfer-device-v1'
+let currentPin=(()=>{try{return sessionStorage.getItem(PIN_STORAGE_KEY)||''}catch{return ''}})()
+let deviceToken=(()=>{try{return sessionStorage.getItem(DEVICE_STORAGE_KEY)||''}catch{return ''}})()
+function saveCredentials(pin:string,token:string){
+ currentPin=pin;deviceToken=token
+ try{sessionStorage.setItem(PIN_STORAGE_KEY,pin);if(token)sessionStorage.setItem(DEVICE_STORAGE_KEY,token)}catch{}
+}
+function clearCredentials(showLogin=true){
+ currentPin='';deviceToken=''
+ try{sessionStorage.removeItem(PIN_STORAGE_KEY);sessionStorage.removeItem(DEVICE_STORAGE_KEY)}catch{}
+ if(showLogin){
+  live?.close();live=null;online=false
+  $('workspace').hidden=true;$('login').hidden=false
+ }
+}
+function withPin(rawUrl:string):string{
+ if(!currentPin)return rawUrl
+ return rawUrl+(rawUrl.includes('?')?'&':'?')+'pin='+encodeURIComponent(currentPin)
+}
+function authHeaders():Record<string,string>{
+ const headers:Record<string,string>={}
+ if(currentPin)headers['X-ToolDock-Pin']=currentPin
+ if(deviceToken)headers['X-ToolDock-Device']=deviceToken
+ return headers
+}
 async function json(url:string,options:RequestInit={}):Promise<any>{
- const response=await fetch(url,{credentials:'same-origin',...options,headers:{'X-ToolDock-Request':'1',...(options.body?{'Content-Type':'application/json'}:{}),...options.headers}})
+ const response=await fetch(url,{credentials:'same-origin',...options,headers:{'X-ToolDock-Request':'1',...authHeaders(),...(options.body?{'Content-Type':'application/json'}:{}),...options.headers}})
  const value=await response.json()
+ if(response.status===401&&url!=='/api/auth')clearCredentials(true)
  if(!response.ok)throw Error(value.error||'请求失败 '+response.status)
  return value
 }
@@ -36,7 +63,9 @@ const post=(url:string,value:unknown)=>json(url,{method:'POST',body:JSON.stringi
 const pools=initPools(json,post,err,{
  record:()=>recordNav(),
  back:()=>backNavigation(),
- backSteps:(steps:number)=>backNavigation(steps)
+ backSteps:(steps:number)=>backNavigation(steps),
+ withPin,
+ authHeaders
 })
 const cacheKey='tooldock-pool-resume-v1'
 function cacheRead():Record<string,{id:string;group:string;relativeFolder:string}>{try{return JSON.parse(sessionStorage.getItem(cacheKey)||'{}')}catch{return {}}}
@@ -108,7 +137,7 @@ function renderDownloadSelection(){
  const ready=visibleShares.filter(s=>s.status==='ready')
  $('select-all').textContent=ready.length>0&&ready.every(s=>selectedDownload.has(s.id))?'取消全选':'全选当前目录'
  const selectedLink=$<HTMLAnchorElement>('download-selected')
- if(matches.length===1&&matches[0].kind==='file')selectedLink.href='/api/files/'+encodeURIComponent(matches[0].id)
+ if(matches.length===1&&matches[0].kind==='file')selectedLink.href=withPin('/api/files/'+encodeURIComponent(matches[0].id))
  else if(matches.length)selectedLink.href='#'
  else selectedLink.removeAttribute('href')
  selectedLink.setAttribute('aria-disabled',String(!matches.length));selectedLink.tabIndex=matches.length?0:-1
@@ -125,7 +154,7 @@ function renderDownloadSelection(){
 }
 async function downloadArchive(ids:string[]){
  const ticket=await post('/api/archive-selections',{ids}) as {url:string}
- window.location.assign(ticket.url)
+ window.location.assign(withPin(ticket.url))
 }
 function renderBreadcrumbs(){
  const root=$('breadcrumbs');root.replaceChildren()
@@ -168,6 +197,7 @@ function renderShares(){
  const container=$('shares');container.replaceChildren()
  renderBreadcrumbs()
  $('share-count').textContent=String(visibleShares.length)
+ $<HTMLAnchorElement>('download-all').href=withPin('/api/zip')
  $('download-all').hidden=!rootShares.length
  if(!visibleShares.length){
   const empty=document.createElement('div');empty.className='empty'
@@ -181,7 +211,7 @@ function renderShares(){
   select.className='checkmark'+(chosen?' selected':'');select.append(icon('check'))
   select.disabled=file.status!=='ready';select.setAttribute('aria-pressed',String(chosen))
   select.onclick=()=>{if(chosen)selectedDownload.delete(file.id);else selectedDownload.add(file.id);renderShares()}
-  const link=document.createElement('a');link.className='download-button';link.href=file.kind==='directory'?'#':'/api/files/'+encodeURIComponent(file.id)
+  const link=document.createElement('a');link.className='download-button';link.href=file.kind==='directory'?'#':withPin('/api/files/'+encodeURIComponent(file.id))
   if(file.kind==='directory'){
    link.onclick=e=>{e.preventDefault();void downloadArchive([file.id]).catch(e=>err(String(e)))}
   }else link.download=file.name
@@ -193,7 +223,7 @@ function renderShares(){
   const open=document.createElement('button');open.type='button';open.className='file-browse'
   open.append(file.kind==='directory'?folderIcon():rowIcon(file.name),info)
   if(file.kind==='directory')open.onclick=()=>void openFolder(file).catch(e=>err(String(e)))
-  else open.onclick=()=>{window.location.href='/api/files/'+encodeURIComponent(file.id)}
+  else open.onclick=()=>{window.location.href=withPin('/api/files/'+encodeURIComponent(file.id))}
   row.append(select,open,link);container.append(row)
  }
  renderDownloadSelection()
@@ -224,8 +254,9 @@ function addFiles(files:File[]){
  }
  renderSelectedUploads();if(files.length)err('')
 }
-async function login(kind:'pin'|'token',value:string){
- await post('/api/auth',{kind,value})
+async function login(pinValue:string){
+ const result=await post('/api/auth',{pin:pinValue,token:deviceToken||undefined}) as {ok:boolean;token?:string}
+ saveCredentials(pinValue,result.token||deviceToken)
  history.replaceState(null,'',location.pathname)
  await enterWorkspace()
 }
@@ -395,6 +426,7 @@ function putChunk(url:string,body:ArrayBuffer,digest:string,signal:AbortSignal,o
   xhr.open('PUT',url)
   xhr.withCredentials=true
   xhr.setRequestHeader('X-ToolDock-Request','1')
+  for(const [k,v] of Object.entries(authHeaders()))xhr.setRequestHeader(k,v)
   xhr.setRequestHeader('X-Chunk-SHA256',digest)
   xhr.setRequestHeader('Content-Type','application/octet-stream')
   const cleanup=()=>signal.removeEventListener('abort',onAbort)
@@ -525,6 +557,9 @@ async function upload(job:TransferJob){
       confirmedRanges=result.ranges
       if(isRangeCovered(confirmedRanges,start,end)){updateProgress(true);return}
       throw Error(result.error||'分片偏移冲突')
+     }else if(status===401){
+      clearCredentials(true)
+      throw Error(result.error||'访问码已失效，请重新输入')
      }else if(status<200||status>=300){
       throw Error(result.error||'上传分片失败')
      }else{
@@ -582,7 +617,7 @@ $('tab-pool').addEventListener('click',()=>{currentPanel('pool');anchorNav()})
 $('tab-messages').addEventListener('click',()=>{currentPanel('messages');anchorNav()})
 $('pool-fab').addEventListener('click',()=>{if(!uploadEnabled)return;$('panel-upload').hidden=false;recordNav()})
 $('upload-close').addEventListener('click',()=>backNavigation())
-$('login-form').addEventListener('submit',e=>{e.preventDefault();void login('pin',($<HTMLInputElement>('pin')).value).catch(e=>err(String(e)))})
+$('login-form').addEventListener('submit',e=>{e.preventDefault();void login(($<HTMLInputElement>('pin')).value).catch(e=>err(String(e)))})
 $('refresh').addEventListener('click',()=>void refresh().catch(e=>err(String(e))))
 $('select-all').addEventListener('click',()=>{
  const files=visibleShares.filter(s=>s.status==='ready')
@@ -609,7 +644,7 @@ let live:EventSource|null=null
 let everConnected=false,online=false
 function connectEvents(){
  if(live)return
- live=new EventSource('/api/events')
+ live=new EventSource(withPin('/api/events'))
  live.addEventListener('change',()=>{pools.scheduleRefresh()})
  live.addEventListener('connected',()=>{
   if(everConnected&&!online)toast.success('已重新连接')
@@ -620,8 +655,9 @@ function connectEvents(){
   online=false
  }
 }
-const fragment=new URLSearchParams(location.hash.slice(1)).get('token')
-if(fragment)void login('token',fragment).catch(e=>{err(String(e));history.replaceState(null,'',location.pathname)})
-else void json('/api/status').then(()=>enterWorkspace()).catch(()=>{})
+const hashParams=new URLSearchParams(location.hash.slice(1))
+const fragmentPin=hashParams.get('pin')||hashParams.get('token')
+if(fragmentPin)void login(fragmentPin).catch(e=>{err(String(e));history.replaceState(null,'',location.pathname)})
+else if(currentPin)void json('/api/status').then(()=>enterWorkspace()).catch(()=>{clearCredentials(true)})
 setInterval(()=>{if(!$('workspace').hidden){void syncUploads().catch(()=>{});if(!live)connectEvents()}},3000)
 setInterval(()=>{if(!$('workspace').hidden)void refresh().catch(()=>{})},15000)
