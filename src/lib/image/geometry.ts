@@ -1,6 +1,21 @@
 export type FitMode='contain'|'cover'|'stretch'
 export type CropRect={x:number;y:number;width:number;height:number}
 export type Rect={sx:number;sy:number;sw:number;sh:number;dx:number;dy:number;dw:number;dh:number}
+export const LOGO_MAX_RADIUS_PERCENT=50
+
+/** 将圆角比例限制在 0–50（50% 对应正方形画布的完整正圆）。 */
+export function clampCornerRadiusPercent(value:number):number{
+ if(!Number.isFinite(value))return 0
+ return Math.min(LOGO_MAX_RADIUS_PERCENT,Math.max(0,Math.round(value)))
+}
+
+/** 按正方形输出边长计算圆角像素半径。 */
+export function cornerRadiusPx(size:number,radiusPercent:number):number{
+ const pct=clampCornerRadiusPercent(radiusPercent)
+ if(!Number.isFinite(size)||size<=0||pct===0)return 0
+ return (size*pct)/100
+}
+
 export function fitRect(sw:number,sh:number,dw:number,dh:number,mode:FitMode):Rect{
  if(![sw,sh,dw,dh].every(n=>Number.isFinite(n)&&n>0))throw Error('图像尺寸无效')
  if(mode==='stretch')return {sx:0,sy:0,sw,sh,dx:0,dy:0,dw,dh}

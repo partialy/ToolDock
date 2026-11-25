@@ -22,6 +22,7 @@
 
 - 新工具的下拉、日期、时间与日期时间组合选择必须使用 ToolDock 自定义 SelectField / DateField / TimeField / DateTimeField，统一 Radix 浮层、主题、焦点和键盘交互；不得使用原生 date/time/datetime-local 浮层。
 - 新图片工具处理必须保持纯本地、安全 SVG 栅格化、独立 Worker 受控处理和有权限边界的保存 IPC；图片及密钥内容不得写入 SQLite/日志。
+- Logo / ICO 生成器（`builtin-logo-icon-generator`）支持 `0% ~ 50%` 圆角比例裁剪（`50%` 收敛为正圆）、实时 Canvas 预览（含内置几何示例与透明格/深浅底切换）、`cover`/`contain` 画布适应切换（默认 `cover`），以及「同时输出直角原版与 `_round` 圆角版」独立导出开关（关闭按当前圆角输出单套；开启且圆角 `> 0%` 时输出原版与 `{stem}_round_{size}x{size}.{ext}` / `{stem}_round.ico` 两套文件）；共享裁剪渲染逻辑集中于 `src/lib/image/logo-render.ts`。
 - 新增内置工具沿用 src/shared/builtinToolRegistry.ts、版本化 SQLite 迁移；不覆盖用户已修改或删除的分类与工具状态。
 
 - 图片编码内置工具仅允许 PNG/JPEG/WebP/GIF/BMP/ICO 的二进制无损 Base64 往返；禁止把图片字节送到 src/lib/base64.ts（公开 API 的 UTF-8 文本上限为 2 MiB；编解码 Worker 允许受控内部 8 MiB 上限）。转换需在独立 image-encoding Worker 中完成，限制 20 MiB 文件和 30 MiB 文本，严格检验魔数与 Data URL MIME，不引入二维码。
